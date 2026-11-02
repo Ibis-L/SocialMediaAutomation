@@ -1,0 +1,618 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Scraper Control Panel{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+
+<script id="templates-data" type="application/json">{{ templates_json|safe }}</script>
+
+<style>
+    /* ───────────────────── ROOT TOKENS ───────────────────── */
+    :root {
+        --sp-bg: #0f1117;
+        --sp-surface: rgba(22, 27, 45, 0.75);
+        --sp-surface-hover: rgba(30, 36, 60, 0.85);
+        --sp-border: rgba(99, 115, 255, 0.12);
+        --sp-border-focus: rgba(99, 115, 255, 0.45);
+        --sp-text: #e2e8f0;
+        --sp-text-muted: #8892b0;
+        --sp-text-dim: #5a6480;
+        --sp-accent: #6366f1;
+        --sp-accent-hover: #818cf8;
+        --sp-accent-glow: rgba(99, 102, 241, 0.3);
+        --sp-success: #10b981;
+        --sp-error: #ef4444;
+        --sp-error-bg: rgba(239, 68, 68, 0.08);
+        --sp-error-border: rgba(239, 68, 68, 0.25);
+        --sp-radius: 16px;
+        --sp-radius-sm: 10px;
+        --sp-radius-xs: 6px;
+        --sp-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --sp-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    }
+
+    /* ───────────────────── ANIMATIONS ───────────────────── */
+    @keyframes sp-fadeInUp {
+        from { opacity: 0; transform: translateY(24px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes sp-shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+    }
+    @keyframes sp-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+    }
+    @keyframes sp-spin {
+        to { transform: rotate(360deg); }
+    }
+
+    /* ───────────────────── LAYOUT ───────────────────── */
+    .scraper-panel {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 32px 20px 60px;
+        font-family: var(--sp-font);
+    }
+
+    /* ───────────────────── HEADER ───────────────────── */
+    .sp-header {
+        text-align: center;
+        margin-bottom: 36px;
+        animation: sp-fadeInUp 0.5s ease-out;
+    }
+    .sp-header-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 64px;
+        height: 64px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, var(--sp-accent), #a855f7);
+        margin-bottom: 16px;
+        font-size: 28px;
+        box-shadow: 0 8px 32px var(--sp-accent-glow);
+    }
+    .sp-header h1 {
+        font-family: var(--sp-font);
+        font-size: 28px;
+        font-weight: 800;
+        color: var(--sp-text);
+        margin: 0 0 8px 0;
+        letter-spacing: -0.5px;
+    }
+    .sp-header p {
+        color: var(--sp-text-muted);
+        font-size: 15px;
+        margin: 0;
+        font-weight: 400;
+    }
+
+    /* ───────────────────── CARD ───────────────────── */
+    .sp-card {
+        background: var(--sp-surface);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--sp-border);
+        border-radius: var(--sp-radius);
+        padding: 32px;
+        margin-bottom: 24px;
+        animation: sp-fadeInUp 0.6s ease-out;
+        transition: border-color 0.3s ease;
+    }
+    .sp-card:hover {
+        border-color: rgba(99, 115, 255, 0.22);
+    }
+    .sp-card-title {
+        font-family: var(--sp-font);
+        font-size: 17px;
+        font-weight: 700;
+        color: var(--sp-text);
+        margin: 0 0 24px 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .sp-card-title .icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: rgba(99, 102, 241, 0.12);
+        font-size: 16px;
+    }
+
+    /* ───────────────────── FORM FIELDS ───────────────────── */
+    .sp-field {
+        margin-bottom: 22px;
+    }
+    .sp-field label {
+        display: block;
+        font-family: var(--sp-font);
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--sp-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        margin-bottom: 8px;
+    }
+    .sp-field select {
+        width: 100%;
+        padding: 12px 16px;
+        border: 1px solid var(--sp-border);
+        border-radius: var(--sp-radius-sm);
+        font-family: var(--sp-font);
+        font-size: 15px;
+        font-weight: 500;
+        color: var(--sp-text);
+        background: rgba(15, 17, 23, 0.6);
+        cursor: pointer;
+        transition: all 0.25s ease;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%238892b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 14px center;
+        background-size: 18px;
+        padding-right: 44px;
+    }
+    .sp-field select:hover {
+        border-color: rgba(99, 115, 255, 0.3);
+        background-color: rgba(22, 27, 45, 0.5);
+    }
+    .sp-field select:focus {
+        outline: none;
+        border-color: var(--sp-accent);
+        box-shadow: 0 0 0 3px var(--sp-accent-glow), 0 0 20px rgba(99, 102, 241, 0.1);
+    }
+    .sp-field select option {
+        background: #1a1f35;
+        color: var(--sp-text);
+        padding: 8px;
+    }
+
+    /* ───────────────────── FIELD ROW (side by side) ───────────────────── */
+    .sp-field-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+
+    /* ───────────────────── TYPE BADGE ───────────────────── */
+    .sp-type-info {
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .sp-type-label {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--sp-text-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .sp-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 14px;
+        border-radius: 100px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        transition: transform 0.2s ease;
+    }
+    .sp-badge:hover { transform: scale(1.05); }
+    .sp-badge-city {
+        background: rgba(16, 185, 129, 0.12);
+        color: #34d399;
+        border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+    .sp-badge-state {
+        background: rgba(59, 130, 246, 0.12);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+    .sp-badge-both {
+        background: rgba(168, 85, 247, 0.12);
+        color: #c084fc;
+        border: 1px solid rgba(168, 85, 247, 0.2);
+    }
+
+    /* ───────────────────── SUBMIT BUTTON ───────────────────── */
+    .sp-submit-area {
+        margin-top: 28px;
+    }
+    .sp-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 32px;
+        border: none;
+        border-radius: var(--sp-radius-sm);
+        font-family: var(--sp-font);
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.25s ease;
+        position: relative;
+        overflow: hidden;
+    }
+    .sp-btn-primary {
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+        color: #fff;
+        box-shadow: 0 4px 16px var(--sp-accent-glow);
+    }
+    .sp-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 28px rgba(99, 102, 241, 0.4);
+    }
+    .sp-btn-primary:active {
+        transform: translateY(0);
+    }
+    .sp-btn-icon {
+        font-size: 18px;
+        display: inline-flex;
+    }
+    /* Shimmer overlay on hover */
+    .sp-btn-primary::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: linear-gradient(105deg,
+            transparent 0%,
+            rgba(255,255,255,0.1) 45%,
+            rgba(255,255,255,0.2) 50%,
+            rgba(255,255,255,0.1) 55%,
+            transparent 100%);
+        background-size: 200% 100%;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+    .sp-btn-primary:hover::after {
+        opacity: 1;
+        animation: sp-shimmer 1.5s ease-in-out infinite;
+    }
+
+    /* ───────────────────── ERROR ALERT ───────────────────── */
+    .sp-alert-error {
+        background: var(--sp-error-bg);
+        border: 1px solid var(--sp-error-border);
+        border-radius: var(--sp-radius-sm);
+        padding: 16px 20px;
+        margin-top: 24px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        animation: sp-fadeInUp 0.4s ease-out;
+    }
+    .sp-alert-error-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+        margin-top: 1px;
+    }
+    .sp-alert-error-text {
+        font-size: 14px;
+        color: #fca5a5;
+        line-height: 1.6;
+        word-break: break-word;
+    }
+    .sp-alert-error-text strong {
+        color: #f87171;
+    }
+
+    /* ───────────────────── RESULT BLOCK ───────────────────── */
+    .sp-result {
+        animation: sp-fadeInUp 0.5s ease-out;
+    }
+    .sp-result-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+    }
+    .sp-result-title {
+        font-family: var(--sp-font);
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--sp-text);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .sp-result-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--sp-success);
+        box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+        animation: sp-pulse 2s ease-in-out infinite;
+    }
+    .sp-result pre {
+        background: #0d1017;
+        border: 1px solid rgba(99, 115, 255, 0.08);
+        border-radius: var(--sp-radius-sm);
+        padding: 24px;
+        overflow-x: auto;
+        font-family: var(--sp-mono);
+        font-size: 13px;
+        line-height: 1.7;
+        color: #a5b4fc;
+        margin: 0;
+        position: relative;
+    }
+    .sp-result pre::before {
+        content: 'JSON';
+        position: absolute;
+        top: 10px;
+        right: 14px;
+        font-family: var(--sp-font);
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--sp-text-dim);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        background: rgba(22, 27, 45, 0.8);
+        padding: 2px 8px;
+        border-radius: 4px;
+    }
+
+    /* ───────────────────── LOADING STATE ───────────────────── */
+    .sp-loading {
+        display: none;
+        align-items: center;
+        gap: 12px;
+        margin-top: 20px;
+        color: var(--sp-text-muted);
+        font-size: 14px;
+        font-weight: 500;
+    }
+    .sp-loading.active { display: flex; }
+    .sp-spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid rgba(99, 102, 241, 0.2);
+        border-top-color: var(--sp-accent);
+        border-radius: 50%;
+        animation: sp-spin 0.8s linear infinite;
+    }
+
+    /* ───────────────────── HIDDEN UTILITY ───────────────────── */
+    .sp-hidden { display: none !important; }
+
+    /* ───────────────────── RESPONSIVE ───────────────────── */
+    @media (max-width: 640px) {
+        .scraper-panel { padding: 16px 12px 40px; }
+        .sp-card { padding: 20px 18px; }
+        .sp-field-row { grid-template-columns: 1fr; }
+        .sp-header h1 { font-size: 22px; }
+        .sp-btn { width: 100%; justify-content: center; }
+    }
+</style>
+
+<div class="scraper-panel">
+
+    <!-- ─── HEADER ─── -->
+    <div class="sp-header">
+        <div class="sp-header-icon">⚡</div>
+        <h1>Scraper Control Panel</h1>
+        <p>Select a news portal and target location to scrape articles</p>
+    </div>
+
+    <!-- ─── FORM CARD ─── -->
+    <div class="sp-card">
+        <div class="sp-card-title">
+            <span class="icon">🎯</span>
+            Configuration
+        </div>
+
+        <form method="POST" id="scraper-form">
+            {% csrf_token %}
+
+            <!-- Portal Selector -->
+            <div class="sp-field">
+                <label for="template_id">News Portal</label>
+                <select name="template_id" id="template_id" onchange="onPortalChange()" required>
+                    <option value="">— Select a Portal —</option>
+                    {% for t in templates %}
+                        <option value="{{ t.id }}" {% if selected_template_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.domain }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Type Badge -->
+            <div id="portal-type-info" class="sp-type-info sp-hidden">
+                <span class="sp-type-label">Portal Type</span>
+                <span id="type-badge" class="sp-badge"></span>
+            </div>
+
+            <!-- State & City Selectors -->
+            <div class="sp-field-row">
+                <div class="sp-field sp-hidden" id="state-group">
+                    <label for="target_state">Target State</label>
+                    <select name="target_state" id="target_state" onchange="onStateChange()">
+                        <option value="">— Select State —</option>
+                    </select>
+                </div>
+                <div class="sp-field sp-hidden" id="city-group">
+                    <label for="target_city">Target City</label>
+                    <select name="target_city" id="target_city">
+                        <option value="">— Select City —</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Article Count -->
+            <div class="sp-field">
+                <label for="article_count">Number of Articles</label>
+                <select name="article_count" id="article_count">
+                    <option value="1">1 Article</option>
+                    <option value="2">2 Articles</option>
+                    <option value="3" selected>3 Articles</option>
+                    <option value="5">5 Articles</option>
+                    <option value="10">10 Articles</option>
+                </select>
+            </div>
+
+            <!-- Submit -->
+            <div class="sp-submit-area">
+                <button type="submit" class="sp-btn sp-btn-primary" id="submit-btn">
+                    <span class="sp-btn-icon">▶</span>
+                    Run Scraper
+                </button>
+            </div>
+
+            <!-- Loading Indicator -->
+            <div class="sp-loading" id="loading-indicator">
+                <div class="sp-spinner"></div>
+                <span>Scraper is running, please wait…</span>
+            </div>
+        </form>
+    </div>
+
+    <!-- ─── ERROR ─── -->
+    {% if error %}
+    <div class="sp-card">
+        <div class="sp-alert-error">
+            <span class="sp-alert-error-icon">⚠️</span>
+            <div class="sp-alert-error-text">
+                <strong>Error: </strong>{{ error|linebreaksbr }}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ─── RESULT ─── -->
+    {% if result %}
+    <div class="sp-card">
+        <div class="sp-result">
+            <div class="sp-result-header">
+                <div class="sp-result-title">
+                    <div class="sp-result-dot"></div>
+                    Extraction Result
+                </div>
+            </div>
+            <pre><code>{{ result }}</code></pre>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+const DATA = JSON.parse(document.getElementById("templates-data").textContent);
+const savedState = "{{ selected_target_state|default:'' }}";
+const savedCity = "{{ selected_target_city|default:'' }}";
+
+function onPortalChange() {
+    const id = document.getElementById("template_id").value;
+    const stateGroup = document.getElementById("state-group");
+    const cityGroup = document.getElementById("city-group");
+    const stateSelect = document.getElementById("target_state");
+    const citySelect = document.getElementById("target_city");
+    const typeInfo = document.getElementById("portal-type-info");
+    const typeBadge = document.getElementById("type-badge");
+
+    // Reset
+    stateGroup.classList.add("sp-hidden");
+    cityGroup.classList.add("sp-hidden");
+    typeInfo.classList.add("sp-hidden");
+    stateSelect.innerHTML = '<option value="">— Select State —</option>';
+    citySelect.innerHTML = '<option value="">— Select City —</option>';
+    stateSelect.required = false;
+    citySelect.required = false;
+
+    if (!id || !DATA[id]) return;
+    const d = DATA[id];
+
+    // Show type badge
+    typeInfo.classList.remove("sp-hidden");
+    const labels = {
+        'city_only': ['🏙️ City Only', 'sp-badge sp-badge-city'],
+        'state_only': ['🗺️ State Only', 'sp-badge sp-badge-state'],
+        'state_and_city': ['🗺️🏙️ State + City', 'sp-badge sp-badge-both']
+    };
+    const [lbl, cls] = labels[d.portal_type] || ['Unknown', 'sp-badge'];
+    typeBadge.textContent = lbl;
+    typeBadge.className = cls;
+
+    // State dropdown
+    if (d.portal_type === 'state_only' || d.portal_type === 'state_and_city') {
+        stateGroup.classList.remove("sp-hidden");
+        stateSelect.required = true;
+        d.states.forEach(s => {
+            const o = document.createElement("option");
+            o.value = s.id;
+            o.textContent = s.name;
+            stateSelect.appendChild(o);
+        });
+        if (savedState) stateSelect.value = savedState;
+    }
+
+    // City dropdown
+    if (d.portal_type === 'city_only' || d.portal_type === 'state_and_city') {
+        cityGroup.classList.remove("sp-hidden");
+        citySelect.required = true;
+
+        if (d.portal_type === 'city_only') {
+            d.cities.forEach(c => {
+                const o = document.createElement("option");
+                o.value = c.id;
+                o.textContent = c.name;
+                citySelect.appendChild(o);
+            });
+            if (savedCity) citySelect.value = savedCity;
+        } else {
+            onStateChange();
+        }
+    }
+}
+
+function onStateChange() {
+    const id = document.getElementById("template_id").value;
+    const stateVal = document.getElementById("target_state").value;
+    const citySelect = document.getElementById("target_city");
+
+    if (!id || !DATA[id]) return;
+    const d = DATA[id];
+    if (d.portal_type !== 'state_and_city') return;
+
+    citySelect.innerHTML = '<option value="">— Select City —</option>';
+
+    let filterStateId = null;
+    if (stateVal) {
+        const mapping = d.states.find(s => s.id == stateVal);
+        if (mapping) filterStateId = mapping.state_id;
+    }
+
+    d.cities.forEach(c => {
+        if (!filterStateId || c.state_id == filterStateId) {
+            const o = document.createElement("option");
+            o.value = c.id;
+            o.textContent = c.name;
+            citySelect.appendChild(o);
+        }
+    });
+    if (savedCity) citySelect.value = savedCity;
+}
+
+// Loading state on form submit
+document.getElementById('scraper-form').addEventListener('submit', function() {
+    document.getElementById('submit-btn').style.opacity = '0.6';
+    document.getElementById('submit-btn').style.pointerEvents = 'none';
+    document.getElementById('loading-indicator').classList.add('active');
+});
+
+document.addEventListener("DOMContentLoaded", onPortalChange);
+</script>
+{% endblock %}

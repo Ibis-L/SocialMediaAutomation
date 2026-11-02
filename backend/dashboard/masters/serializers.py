@@ -1,0 +1,108 @@
+from rest_framework import serializers
+from .models import ScrapedArticle, TemplateConfig, ScrapeLog, WhatsAppDevice, DeviceContact, WhatsAppTask, TwitterTarget, TwitterTask
+from django.utils import timezone
+from datetime import timedelta
+
+class ReviewNoteSerializer(serializers.ModelSerializer):
+    author_name = serializers.CharField(source='user.username', read_only=True)
+    note = serializers.CharField(source='text', read_only=True)
+    
+    class Meta:
+        from .models import ReviewNote
+        model = ReviewNote
+        fields = ['id', 'user', 'author_name', 'note', 'created_at']
+
+class ScrapedArticleSerializer(serializers.ModelSerializer):
+    template_name = serializers.CharField(source='template.name', read_only=True)
+    review_notes = ReviewNoteSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = ScrapedArticle
+        fields = [
+            'id', 'template', 'template_name', 'source_url', 'title', 
+            'content', 'scraped_at', 'status', 'edited_content', 
+            'cover_image', 'seo_title', 'seo_desc', 'seo_keywords',
+            'sentiment', 'readability', 'seo_score', 'review_notes'
+        ]
+
+class DashboardSourceSerializer(serializers.ModelSerializer):
+    scraped_24h = serializers.SerializerMethodField()
+    type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TemplateConfig
+        fields = [
+            'id', 'name', 'domain', 'status', 'last_scraped_at', 
+            'scraped_24h', 'type', 'url_identifier', 'portal_type', 
+            'url_pattern', 'selectors'
+        ]
+
+    def get_type(self, obj):
+        return "WEBSITE"
+
+    def create(self, validated_data):
+        if 'status' not in validated_data:
+            validated_data['status'] = 'Active'
+        return super().create(validated_data)
+
+    def get_scraped_24h(self, obj):
+        time_threshold = timezone.now() - timedelta(hours=24)
+        return ScrapedArticle.objects.filter(template=obj, scraped_at__gte=time_threshold).count()
+
+class ScrapeLogSerializer(serializers.ModelSerializer):
+    template_name = serializers.CharField(source='template.name', read_only=True)
+
+    class Meta:
+        model = ScrapeLog
+        fields = ['id', 'template_name', 'url', 'status', 'message', 'created_at']
+
+class DeviceContactSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeviceContact
+        fields = ['id', 'phone_number', 'name', 'created_at']
+
+class TwitterTargetSerializer(serializers.ModelSerializer):
+    device_name = serializers.CharField(source='device.name', read_only=True)
+
+    class Meta:
+        model = TwitterTarget
+        fields = ['id', 'device', 'device_name', 'handle', 'name', 'category', 'notes', 'created_at']
+
+class WhatsAppDeviceSerializer(serializers.ModelSerializer):
+    contacts = DeviceContactSerializer(many=True, read_only=True)
+    twitter_targets = TwitterTargetSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = WhatsAppDevice
+        fields = [
+            'id', 'phone_number', 'name', 'twitter_handle', 
+            'battery_level', 'battery_status', 'temperature', 
+            'last_heartbeat', 'contacts', 'twitter_targets', 'created_at'
+        ]
+
+class WhatsAppTaskSerializer(serializers.ModelSerializer):
+    device_number = serializers.CharField(source='device.phone_number', read_only=True)
+    
+    class Meta:
+        model = WhatsAppTask
+        fields = ['id', 'device', 'device_number', 'contact_number', 'message', 'status', 'created_at', 'processed_at']
+
+class TwitterTaskSerializer(serializers.ModelSerializer):
+    device_name = serializers.CharField(source='device.name', read_only=True)
+    device_phone = serializers.CharField(source='device.phone_number', read_only=True)
+    device_twitter_handle = serializers.CharField(source='device.twitter_handle', read_only=True)
+
+    class Meta:
+        model = TwitterTask
+        fields = [
+            'id', 'device', 'device_name', 'device_phone', 'device_twitter_handle',
+            'task_type', 'target_handle', 'content', 'status', 
+            'result_message', 'created_at', 'processed_at'
+        ]
+
+class AppReleaseSerializer(serializers.ModelSerializer):
+    class Meta:
+        from .models import AppRelease
+        model = AppRelease
+        fields = '__all__'
+

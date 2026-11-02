@@ -1,0 +1,70 @@
+##############################################################
+#  NEWS-PORTAL  —  Local Docker Compose (mirrors production)
+#  Usage:
+#    docker compose up --build          (first time / after code changes)
+#    docker compose up                  (subsequent runs, no rebuild)
+#    docker compose down                (stop everything)
+#    docker compose down -v             (stop + DELETE database data)
+##############################################################
+
+services:
+
+  # ─── PostgreSQL (same as production) ───────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: news_portal
+      POSTGRES_USER: newsadmin
+      POSTGRES_PASSWORD: newsadmin123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data      # ← data survives rebuilds
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U newsadmin -d news_portal"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── Django Backend ────────────────────────────────────────
+  backend:
+    build:
+      context: .                               # ← project root (Dockerfile uses COPY backend/...)
+      dockerfile: backend/Dockerfile.backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgres://newsadmin:newsadmin123@db:5432/news_portal
+      - DEBUG=True
+      - ALLOWED_HOSTS=*
+      - SECRET_KEY=local-dev-secret-key-change-in-production
+      - CSRF_TRUSTED_ORIGINS=http://localhost:3000,http://localhost:8000
+      - GROQ_API_KEY=${GROQ_API_KEY:-gsk_XXX}
+      - GROQ_MODEL=${GROQ_MODEL:-openai/gpt-oss-120b}
+    depends_on:
+      db:
+        condition: service_healthy             # ← waits for DB to be ready
+    volumes:
+      - media_data:/app/dashboard/media        # ← uploaded images persist
+
+  # ─── Next.js Frontend ─────────────────────────────────────
+  frontend:
+    build:
+      context: .                               # ← project root (Dockerfile uses COPY frontend/...)
+      dockerfile: frontend/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000    # ← baked into the build
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
+
+# ─── Named Volumes (persist data across rebuilds) ──────────
+volumes:
+  pg_data:        # PostgreSQL data — survives docker compose down
+  media_data:     # Uploaded media files

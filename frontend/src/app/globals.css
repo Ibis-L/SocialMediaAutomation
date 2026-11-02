@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand Fonts (CSS vars injected by next/font via layout.js) */
+  --font-heading: var(--font-cormorant);
+  --font-body: var(--font-manrope);
+  --font-label: var(--font-plex);
+  --font-stat: var(--font-cormorant-infant);
+  --font-inter: var(--font-inter-var);
+
+  /* Brand Colors (matched to Figma) */
+  --color-brand-black: #000000;
+  --color-brand-red: #C8341D;
+  --color-brand-cream: #F1EDE3;
+  --color-brand-blue: #3A5A8C;
+  --color-brand-gold: #A9791A;
+  --color-brand-sidebar: #1A1714;
+  --color-brand-white: #ffffff;
+
+  /* Surface Colors */
+  --color-brand-card: #FBF9F4;
+  --color-brand-border: #D1D1D6;
+  --color-brand-muted: #8E8E93;
+  --color-brand-tags: #78787C;
+  --color-brand-track: #E7E1D3;
+  --color-brand-warm: #F4F0E7;
+  --color-brand-green: #2F6B4F;
+
+  /* Badge Colors */
+  --color-badge-api: #0C962F;
+
+  /* Status Colors */
+  --color-status-active: #0B7225;
+  --color-status-error: #C8341D;
+  --color-status-pause: #C8341D;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+/* Safe-area padding for mobile bottom nav (iPhone home indicator etc.) */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Hide scrollbar in filter tabs on mobile */
+.overflow-x-auto {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.overflow-x-auto::-webkit-scrollbar {
+  display: none;
+}

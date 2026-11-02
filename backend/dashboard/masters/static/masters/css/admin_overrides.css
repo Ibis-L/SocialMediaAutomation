@@ -1,0 +1,452 @@
+/*
+ * Admin Override Styles
+ * Polishes the Jazzmin/Darkly admin to feel more premium and cohesive
+ * with the scraper panel's dark indigo design language.
+ * Fixes contrast/readability issues across the entire admin dashboard.
+ */
+
+/* ─── Google Font ─── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* ─── Base ─── */
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    color: #e2e8f0 !important;
+}
+
+/* ─── Navbar ─── */
+.main-header .navbar {
+    background: #111827 !important;
+    border-bottom: 1px solid rgba(99, 115, 255, 0.08);
+}
+.main-header .navbar .nav-link,
+.main-header .navbar .navbar-nav .nav-link {
+    color: #c7d2fe !important;
+}
+
+/* ─── Sidebar ─── */
+.main-sidebar {
+    background: #0f1219 !important;
+}
+.main-sidebar .brand-link {
+    border-bottom: 1px solid rgba(99, 115, 255, 0.1);
+    color: #e2e8f0 !important;
+}
+.sidebar .nav-link {
+    border-radius: 8px;
+    margin: 2px 8px;
+    transition: all 0.2s ease;
+    color: #c7d2fe !important;
+}
+.sidebar .nav-link p,
+.sidebar .nav-link i {
+    color: #c7d2fe !important;
+}
+.sidebar .nav-link:hover {
+    background: rgba(99, 102, 241, 0.1) !important;
+}
+.sidebar .nav-link.active {
+    background: rgba(99, 102, 241, 0.15) !important;
+    border-left: 3px solid #6366f1;
+}
+.sidebar .nav-header {
+    color: #8892b0 !important;
+}
+.user-panel .info a {
+    color: #e2e8f0 !important;
+}
+
+/* ─── Content Area ─── */
+.content-wrapper,
+.content-wrapper .content,
+.content-wrapper .container-fluid,
+.content-wrapper .content-header,
+.content-wrapper .container-fluid .content-header {
+    background: #0f1117 !important;
+    color: #e2e8f0 !important;
+}
+
+/* ─── Page Titles & Headings ─── */
+.content-header,
+.content-header * {
+    color: #e2e8f0 !important;
+}
+.content-header {
+    background: #0f1117 !important;
+}
+.content-header h1 {
+    font-weight: 700 !important;
+    letter-spacing: -0.5px;
+    color: #e2e8f0 !important;
+}
+/* Selection counter, result count, and misc admin text */
+.changelist-form-container p,
+p.paginator,
+.actions span,
+.actions label {
+    color: #c7d2fe !important;
+}
+.content-header .breadcrumb {
+    background: transparent !important;
+}
+.breadcrumb-item a {
+    color: #818cf8 !important;
+}
+.breadcrumb-item.active {
+    color: #e2e8f0 !important;
+}
+.breadcrumb-item + .breadcrumb-item::before {
+    color: #5a6480 !important;
+}
+
+/* ─── Cards ─── */
+.card {
+    background: rgba(22, 27, 45, 0.75) !important;
+    border: 1px solid rgba(99, 115, 255, 0.1) !important;
+    border-radius: 12px !important;
+    backdrop-filter: blur(12px);
+    color: #e2e8f0 !important;
+}
+.card-header {
+    background: transparent !important;
+    border-bottom: 1px solid rgba(99, 115, 255, 0.08) !important;
+    color: #e2e8f0 !important;
+}
+.card-header .card-title {
+    color: #e2e8f0 !important;
+}
+.card-body {
+    color: #e2e8f0 !important;
+}
+
+/* ─── Tables ─── */
+.table {
+    color: #e2e8f0 !important;
+}
+.table th {
+    border-color: rgba(99, 115, 255, 0.1) !important;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: #8892b0 !important;
+    background: rgba(15, 17, 23, 0.4) !important;
+}
+.table td {
+    border-color: rgba(99, 115, 255, 0.06) !important;
+    color: #e2e8f0 !important;
+}
+.table td a {
+    color: #a5b4fc !important;
+    font-weight: 500;
+}
+.table td a:hover {
+    color: #c7d2fe !important;
+}
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(15, 17, 23, 0.3) !important;
+}
+.table-hover tbody tr:hover {
+    background-color: rgba(99, 102, 241, 0.06) !important;
+}
+
+/* ─── Buttons ─── */
+.btn-primary,
+.btn-outline-primary {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    color: #fff !important;
+    transition: all 0.2s ease !important;
+}
+.btn-primary:hover,
+.btn-outline-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3) !important;
+}
+.btn-secondary {
+    background: rgba(30, 36, 60, 0.8) !important;
+    border: 1px solid rgba(99, 115, 255, 0.15) !important;
+    color: #c7d2fe !important;
+    border-radius: 8px !important;
+}
+.btn-info, .btn-success, .btn-warning, .btn-danger {
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}
+
+/* ─── Form Inputs ─── */
+.form-control,
+select.form-control,
+textarea.form-control,
+input[type="text"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+input[type="url"],
+select,
+textarea {
+    background: rgba(15, 17, 23, 0.6) !important;
+    border: 1px solid rgba(99, 115, 255, 0.12) !important;
+    border-radius: 8px !important;
+    color: #e2e8f0 !important;
+    transition: all 0.25s ease !important;
+}
+.form-control:focus,
+select.form-control:focus,
+textarea.form-control:focus,
+input:focus,
+select:focus,
+textarea:focus {
+    border-color: #6366f1 !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2) !important;
+    color: #e2e8f0 !important;
+}
+/* Select dropdown options */
+select option {
+    background: #1a1f35 !important;
+    color: #e2e8f0 !important;
+}
+
+/* ─── Form Labels ─── */
+label,
+.form-group label,
+.control-label,
+.field-label {
+    color: #c7d2fe !important;
+    font-weight: 500 !important;
+}
+
+/* ─── Help Text ─── */
+.help-block,
+.helptext,
+span.help-block,
+p.help-block,
+.form-text,
+.text-muted {
+    color: #8892b0 !important;
+}
+
+/* ─── Fieldset & Legend ─── */
+fieldset {
+    border: 1px solid rgba(99, 115, 255, 0.1) !important;
+    border-radius: 10px !important;
+    padding: 16px !important;
+    margin-bottom: 16px !important;
+}
+fieldset legend,
+fieldset .card-header {
+    color: #c7d2fe !important;
+    font-weight: 600 !important;
+}
+.module h2,
+.module caption {
+    color: #e2e8f0 !important;
+    background: rgba(99, 102, 241, 0.08) !important;
+    border-radius: 8px 8px 0 0;
+    padding: 10px 16px !important;
+}
+
+/* ─── Tabs (Admin Change Form) ─── */
+.nav-tabs {
+    border-bottom: 1px solid rgba(99, 115, 255, 0.15) !important;
+}
+.nav-tabs .nav-link {
+    color: #8892b0 !important;
+    border: 1px solid transparent !important;
+    border-radius: 8px 8px 0 0 !important;
+    transition: all 0.2s ease;
+}
+.nav-tabs .nav-link:hover {
+    color: #c7d2fe !important;
+    border-color: rgba(99, 115, 255, 0.15) !important;
+    background: rgba(99, 102, 241, 0.05) !important;
+}
+.nav-tabs .nav-link.active {
+    color: #e2e8f0 !important;
+    background: rgba(22, 27, 45, 0.75) !important;
+    border-color: rgba(99, 115, 255, 0.15) rgba(99, 115, 255, 0.15) transparent !important;
+    font-weight: 600;
+}
+.tab-content {
+    color: #e2e8f0 !important;
+}
+
+/* ─── Inline Groups (portal state/city mappings) ─── */
+.inline-group .tabular td {
+    padding: 10px 12px !important;
+    color: #e2e8f0 !important;
+}
+.inline-group h2 {
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.3px;
+    color: #e2e8f0 !important;
+}
+.inline-group .tabular th {
+    color: #8892b0 !important;
+}
+
+/* ─── Pagination ─── */
+.pagination .page-link {
+    background: rgba(22, 27, 45, 0.75) !important;
+    border-color: rgba(99, 115, 255, 0.12) !important;
+    color: #c7d2fe !important;
+}
+.pagination .page-item.active .page-link {
+    background: #6366f1 !important;
+    border-color: #6366f1 !important;
+    color: #fff !important;
+}
+.pagination .page-link:hover {
+    background: rgba(99, 102, 241, 0.15) !important;
+    color: #e2e8f0 !important;
+}
+
+/* ─── Object Tools (action bar) ─── */
+.object-tools a,
+.object-tools li a {
+    color: #c7d2fe !important;
+}
+.changelist-form-container p {
+    color: #c7d2fe !important;
+}
+
+/* ─── Recent Actions / Dashboard Widgets ─── */
+.dashboard-module,
+#recent-actions-module {
+    color: #e2e8f0 !important;
+}
+.dashboard-module table td,
+.dashboard-module table th {
+    color: #e2e8f0 !important;
+}
+.actionlist li {
+    color: #c7d2fe !important;
+}
+
+/* ─── Footer ─── */
+.main-footer {
+    background: #0f1219 !important;
+    border-top: 1px solid rgba(99, 115, 255, 0.08) !important;
+    color: #5a6480 !important;
+}
+
+/* ─── Dashboard Stat Boxes ─── */
+.small-box {
+    border-radius: 12px !important;
+    overflow: hidden;
+}
+.small-box .inner h3 {
+    font-weight: 800 !important;
+}
+.small-box .inner p {
+    color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* ─── Links ─── */
+a {
+    color: #818cf8;
+    transition: color 0.2s ease;
+}
+a:hover {
+    color: #a5b4fc;
+}
+
+/* ─── Checkbox & Radio ─── */
+.form-check-label,
+label[for] {
+    color: #c7d2fe !important;
+}
+
+/* ─── Delete Confirmation ─── */
+.delete-confirmation {
+    color: #e2e8f0 !important;
+}
+
+/* ─── Error Messages ─── */
+.errorlist li {
+    color: #fca5a5 !important;
+}
+.errornote {
+    color: #fca5a5 !important;
+    background: rgba(239, 68, 68, 0.1) !important;
+    border: 1px solid rgba(239, 68, 68, 0.25) !important;
+    border-radius: 8px !important;
+    padding: 10px 16px !important;
+}
+
+/* ─── Success Messages ─── */
+.messagelist .success {
+    background: rgba(16, 185, 129, 0.1) !important;
+    border: 1px solid rgba(16, 185, 129, 0.25) !important;
+    color: #6ee7b7 !important;
+    border-radius: 8px !important;
+}
+
+/* ─── Readonly Fields ─── */
+.readonly,
+.form-control-plaintext,
+div.readonly {
+    color: #a5b4fc !important;
+    background: rgba(15, 17, 23, 0.3) !important;
+    border: 1px solid rgba(99, 115, 255, 0.08) !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+}
+
+/* ─── Admin Description Text ─── */
+.description,
+.help,
+.module p.help,
+.collapse-toggle {
+    color: #8892b0 !important;
+}
+
+/* ─── Selection Counter & Action Bar ─── */
+.actions,
+.actions label,
+.actions span {
+    color: #c7d2fe !important;
+}
+.actions select {
+    color: #e2e8f0 !important;
+}
+
+/* ─── Paginator & Result Count ─── */
+.paginator,
+p.paginator {
+    color: #c7d2fe !important;
+}
+.paginator a {
+    color: #818cf8 !important;
+}
+.result-count,
+p.result-count,
+.changelist-form-container > p,
+.card-body > p {
+    color: #c7d2fe !important;
+}
+
+/* ─── General dark background enforcement ─── */
+.content-wrapper > .content {
+    color: #e2e8f0 !important;
+}
+
+/* ─── Login page (if not already styled) ─── */
+.login-page {
+    background: #0f1117 !important;
+}
+
+/* ─── Modal dialogs ─── */
+.modal-content {
+    background: #1a1f35 !important;
+    color: #e2e8f0 !important;
+}
+.modal-header {
+    border-bottom-color: rgba(99, 115, 255, 0.12) !important;
+}
+.modal-footer {
+    border-top-color: rgba(99, 115, 255, 0.12) !important;
+}
