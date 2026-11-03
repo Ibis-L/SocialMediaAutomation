@@ -246,7 +246,7 @@ object TwitterAutomationHandler {
         }
 
         // Match by text — "Message" text on a clickable button in profile area
-        if (text.equals("Message", ignoreCase = true) && node.isClickable) {
+        if (text.equals("Message", ignoreCase = true)) {
             Log.d(TAG, "DM button found by text: $text")
             return node
         }
