@@ -3,11 +3,10 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import axios from 'axios';
-import { getApiBaseUrl } from '@/lib/api';
 
 // Create a configured axios instance
 export const api = axios.create({
-  baseURL: getApiBaseUrl(),
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
   withCredentials: true, // Important for sending/receiving HttpOnly cookies
 });
 
@@ -43,7 +42,6 @@ export const AuthProvider = ({ children }) => {
   // Setup Axios interceptors
   useEffect(() => {
     const requestIntercept = api.interceptors.request.use((config) => {
-      config.baseURL = getApiBaseUrl();
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;

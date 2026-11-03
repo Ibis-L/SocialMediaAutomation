@@ -15,7 +15,7 @@ export default function DashboardTabs({ tabs = [] }) {
   return (
     <div className="flex items-end gap-0 border-b border-gray-200 px-6">
       {tabs.map((tab) => {
-        const isActive = pathname === tab.href;
+        const isActive = pathname.replace(/\/$/, "") === tab.href.replace(/\/$/, "");
         return (
           <Link
             key={tab.href}

@@ -22,7 +22,7 @@ import kotlin.concurrent.thread
 class PollingService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
-    private val pollIntervalMs = 30000L // 30 seconds interval
+    private val pollIntervalMs = 5000L // 5 seconds interval
 
     private val pollRunnable = object : Runnable {
         override fun run() {
@@ -51,15 +51,26 @@ class PollingService : Service() {
             addAction(android.content.Intent.ACTION_POWER_CONNECTED)
             addAction(android.content.Intent.ACTION_POWER_DISCONNECTED)
         }
-        registerReceiver(powerReceiver, filter)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(powerReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(powerReceiver, filter)
+        }
     }
 
     private fun checkForPendingTask() {
         thread {
             try {
+                // Prevent task collisions: Skip poll if already executing a task or downloading video
+                if (AutomationState.isAutomationActive || AutomationState.isDownloading) {
+                    android.util.Log.d("PollingService", "Device is currently busy with active automation/download. Skipping poll cycle.")
+                    return@thread
+                }
+
                 val prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
                 val serverBaseUrl = prefs.getString("server_url", BuildConfig.API_BASE_URL) ?: BuildConfig.API_BASE_URL
                 var devicePhone = prefs.getString("device_phone", "") ?: ""
+                val deviceToken = prefs.getString("device_token", AutomationState.deviceToken)
                 
                 // URL encode the phone number (e.g. + becomes %2B)
                 val encodedPhone = java.net.URLEncoder.encode(devicePhone, "UTF-8")
@@ -77,6 +88,9 @@ class PollingService : Service() {
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 5000
                 connection.readTimeout = 5000
+                if (!deviceToken.isNullOrEmpty()) {
+                    connection.setRequestProperty("X-Device-Token", deviceToken)
+                }
 
                 var hasHandledTask = false
 
@@ -90,15 +104,54 @@ class PollingService : Service() {
 
                     if (hasTask) {
                         val taskId = json.optString("taskId")
-                        val phoneNumber = json.optString("phoneNumber")
-                        val message = json.optString("message")
+                        val taskType = json.optString("taskType", "WHATSAPP")
 
-                        if (phoneNumber.isNotEmpty() && message.isNotEmpty()) {
-                            AutomationState.serverBaseUrl = serverBaseUrl
-                            AutomationState.platform = "WHATSAPP"
-                            AutomationState.taskType = "WHATSAPP"
-                            hasHandledTask = true
-                            launchWhatsAppDispatch(taskId, phoneNumber, message)
+                        AutomationState.serverBaseUrl = serverBaseUrl
+                        AutomationState.currentTaskId = taskId
+                        AutomationState.currentTaskType = taskType
+                        if (!deviceToken.isNullOrEmpty()) {
+                            AutomationState.deviceToken = deviceToken
+                        }
+
+                        if (taskType.equals("YOUTUBE", ignoreCase = true)) {
+                            val videoUrl = json.optString("videoUrl", "")
+                            val title = json.optString("title", "Breaking News Update")
+                            val description = json.optString("description", "")
+                            val isMadeForKids = json.optBoolean("isMadeForKids", true)
+                            val commentsEnabled = json.optBoolean("commentsEnabled", true)
+
+                            AutomationState.isMadeForKids = isMadeForKids
+                            AutomationState.commentsEnabled = commentsEnabled
+                            AutomationState.platform = "YOUTUBE"
+                            AutomationState.taskType = "YOUTUBE"
+
+                            if (videoUrl.isNotEmpty()) {
+                                hasHandledTask = true
+                                downloadAndLaunchYouTube(taskId, videoUrl, title, description, isMadeForKids, commentsEnabled, serverBaseUrl)
+                            }
+                        } else {
+                            val platform = json.optString("platform", "whatsapp").lowercase()
+                            val phoneNumber = json.optString("phoneNumber")
+                            val message = json.optString("message")
+
+                            if (phoneNumber.isNotEmpty() && message.isNotEmpty()) {
+                                if (platform == "instagram" || taskType.equals("INSTAGRAM", ignoreCase = true)) {
+                                    AutomationState.platform = "INSTAGRAM"
+                                    AutomationState.taskType = "INSTAGRAM"
+                                    hasHandledTask = true
+                                    launchInstagramDispatch(taskId, phoneNumber, message)
+                                } else if (platform == "facebook" || taskType.equals("FACEBOOK", ignoreCase = true)) {
+                                    AutomationState.platform = "FACEBOOK"
+                                    AutomationState.taskType = "FACEBOOK"
+                                    hasHandledTask = true
+                                    launchFacebookDispatch(taskId, phoneNumber, message)
+                                } else {
+                                    AutomationState.platform = "WHATSAPP"
+                                    AutomationState.taskType = "WHATSAPP"
+                                    hasHandledTask = true
+                                    launchWhatsAppDispatch(taskId, phoneNumber, message)
+                                }
+                            }
                         }
                     }
                 }
@@ -111,6 +164,9 @@ class PollingService : Service() {
                     twConn.requestMethod = "GET"
                     twConn.connectTimeout = 5000
                     twConn.readTimeout = 5000
+                    if (!deviceToken.isNullOrEmpty()) {
+                        twConn.setRequestProperty("X-Device-Token", deviceToken)
+                    }
 
                     if (twConn.responseCode == HttpURLConnection.HTTP_OK) {
                         val twReader = BufferedReader(InputStreamReader(twConn.inputStream))
@@ -147,6 +203,9 @@ class PollingService : Service() {
     private fun sendHeartbeat(serverBaseUrl: String, phone: String) {
         thread {
             try {
+                val prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+                val deviceToken = prefs.getString("device_token", AutomationState.deviceToken)
+
                 val batteryStatus: Intent? = registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
                 val level = batteryStatus?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
                 val scale = batteryStatus?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
@@ -163,6 +222,9 @@ class PollingService : Service() {
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "POST"
                 connection.setRequestProperty("Content-Type", "application/json")
+                if (!deviceToken.isNullOrEmpty()) {
+                    connection.setRequestProperty("X-Device-Token", deviceToken)
+                }
                 connection.doOutput = true
                 
                 val jsonPayload = JSONObject()
@@ -184,14 +246,216 @@ class PollingService : Service() {
         }
     }
 
-    private fun launchWhatsAppDispatch(taskId: String, phone: String, msg: String) {
+    private fun downloadAndLaunchYouTube(
+        taskId: String,
+        videoUrl: String,
+        title: String,
+        description: String,
+        isMadeForKids: Boolean,
+        commentsEnabled: Boolean,
+        serverBaseUrl: String
+    ) {
+        thread {
+            val prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+            val deviceToken = prefs.getString("device_token", AutomationState.deviceToken)
+            AutomationState.isDownloading = true
+
+            val fullUrl = if (videoUrl.startsWith("http://") || videoUrl.startsWith("https://")) {
+                videoUrl
+            } else {
+                "$serverBaseUrl$videoUrl"
+            }
+
+            val targetFile = java.io.File(cacheDir, "yt_task_${taskId}.mp4")
+            var downloadSuccess = false
+            var lastException: Exception? = null
+            val maxRetries = 3
+
+            for (attempt in 1..maxRetries) {
+                try {
+                    if (targetFile.exists()) targetFile.delete()
+
+                    android.util.Log.d("PollingService", "Downloading video (attempt $attempt/$maxRetries): $fullUrl")
+                    val url = URL(fullUrl)
+                    val conn = (url.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 15000
+                        readTimeout = 60000
+                        if (!deviceToken.isNullOrEmpty()) {
+                            setRequestProperty("X-Device-Token", deviceToken)
+                        }
+                    }
+
+                    if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                        val contentLength = conn.contentLength
+                        conn.inputStream.use { input ->
+                            java.io.FileOutputStream(targetFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        conn.disconnect()
+
+                        // Validate file downloaded completely if length header provided
+                        if (contentLength > 0 && targetFile.length() < contentLength) {
+                            android.util.Log.w("PollingService", "Downloaded size ${targetFile.length()} < $contentLength. Retrying attempt $attempt...")
+                            Thread.sleep(2000)
+                            continue
+                        }
+
+                        downloadSuccess = true
+                        break
+                    } else {
+                        conn.disconnect()
+                        android.util.Log.e("PollingService", "Download attempt $attempt failed with HTTP ${conn.responseCode}")
+                        Thread.sleep(2000)
+                    }
+                } catch (e: Exception) {
+                    lastException = e
+                    android.util.Log.e("PollingService", "Download attempt $attempt encountered error: ${e.message}")
+                    Thread.sleep(2000)
+                }
+            }
+
+            if (!downloadSuccess) {
+                android.util.Log.e("PollingService", "Failed to download video after $maxRetries attempts. Reporting task FAILED.", lastException)
+                reportTaskFailure(serverBaseUrl, taskId, deviceToken)
+                AutomationState.isDownloading = false
+                AutomationState.isAutomationActive = false
+                if (targetFile.exists()) targetFile.delete()
+                return@thread
+            }
+
+            AutomationState.isDownloading = false
+            AutomationState.isAutomationActive = true
+
+            try {
+                var finalUri: android.net.Uri? = null
+                try {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Video.Media.TITLE, title)
+                        put(android.provider.MediaStore.Video.Media.DISPLAY_NAME, "yt_task_${taskId}.mp4")
+                        put(android.provider.MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(android.provider.MediaStore.Video.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_MOVIES + "/Automation")
+                            put(android.provider.MediaStore.Video.Media.IS_PENDING, 1)
+                        }
+                    }
+
+                    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        android.provider.MediaStore.Video.Media.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    } else {
+                        android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    }
+
+                    val mediaUri = contentResolver.insert(collection, values)
+                    if (mediaUri != null) {
+                        contentResolver.openOutputStream(mediaUri)?.use { outStream ->
+                            java.io.FileInputStream(targetFile).use { inStream ->
+                                inStream.copyTo(outStream)
+                            }
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            values.clear()
+                            values.put(android.provider.MediaStore.Video.Media.IS_PENDING, 0)
+                            contentResolver.update(mediaUri, values, null, null)
+                        }
+                        finalUri = mediaUri
+                        android.util.Log.d("PollingService", "Successfully saved video to MediaStore: $finalUri")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("PollingService", "Failed to save to MediaStore, falling back to FileProvider: ${e.message}")
+                }
+
+                if (finalUri == null) {
+                    finalUri = androidx.core.content.FileProvider.getUriForFile(
+                        this,
+                        "${packageName}.fileprovider",
+                        targetFile
+                    )
+                }
+
+                val intent = Intent(this, MainActivity::class.java).apply {
+                    putExtra("taskType", "YOUTUBE")
+                    putExtra("taskId", taskId)
+                    putExtra("videoUri", finalUri.toString())
+                    putExtra("title", title)
+                    putExtra("description", description)
+                    putExtra("isMadeForKids", isMadeForKids)
+                    putExtra("commentsEnabled", commentsEnabled)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+
+                launchActivityWithBypass(intent)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                reportTaskFailure(serverBaseUrl, taskId, deviceToken)
+                AutomationState.isAutomationActive = false
+            }
+        }
+    }
+
+    private fun reportTaskFailure(serverBaseUrl: String, taskId: String, deviceToken: String?) {
+        thread {
+            try {
+                val endpoint = "$serverBaseUrl/masters/api/youtube/tasks/$taskId/complete/"
+                val url = URL(endpoint)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.setRequestProperty("Content-Type", "application/json")
+                if (!deviceToken.isNullOrEmpty()) {
+                    connection.setRequestProperty("X-Device-Token", deviceToken)
+                }
+                connection.doOutput = true
+
+                val outputStream = connection.outputStream
+                outputStream.write("{\"status\":\"FAILED\"}".toByteArray(Charsets.UTF_8))
+                outputStream.flush()
+                outputStream.close()
+
+                connection.responseCode
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+
+    private fun launchInstagramDispatch(taskId: String, phone: String, msg: String) {
         val intent = Intent(this, MainActivity::class.java).apply {
+            putExtra("platform", "INSTAGRAM")
+            putExtra("taskType", "INSTAGRAM")
             putExtra("taskId", taskId)
             putExtra("phoneNumber", phone)
             putExtra("message", msg)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
+        launchActivityWithBypass(intent)
+    }
 
+    private fun launchFacebookDispatch(taskId: String, phone: String, msg: String) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            putExtra("platform", "FACEBOOK")
+            putExtra("taskType", "FACEBOOK")
+            putExtra("taskId", taskId)
+            putExtra("phoneNumber", phone)
+            putExtra("message", msg)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        launchActivityWithBypass(intent)
+    }
+
+    private fun launchWhatsAppDispatch(taskId: String, phone: String, msg: String) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            putExtra("taskType", "WHATSAPP")
+            putExtra("taskId", taskId)
+            putExtra("phoneNumber", phone)
+            putExtra("message", msg)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        launchActivityWithBypass(intent)
+    }
+
+    private fun launchActivityWithBypass(intent: Intent) {
         try {
             // Android 14 Background Launch Bypass via PendingIntent
             val options = android.app.ActivityOptions.makeBasic()

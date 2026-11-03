@@ -1,6 +1,7 @@
 package com.example.automation
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -13,8 +14,10 @@ import org.json.JSONObject
 class WAAutoClickService : AccessibilityService() {
 
     private var isProcessing = false
-    private val TAG = "AutoServiceDebug"
+    private val TAG = "AutomationDebug"
     private val handler = Handler(Looper.getMainLooper())
+
+    private val youTubeHandler by lazy { YouTubeAutomationHandler(this) }
 
     private val safetyResetRunnable = Runnable {
         if (isProcessing) {
@@ -29,7 +32,7 @@ class WAAutoClickService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val packageName = event?.packageName?.toString() ?: return
+        val pkg = event?.packageName?.toString() ?: return
 
         // 🚨 CRITICAL CHECK: Only run IF an automation task is actively marked
         if (!AutomationState.isAutomationActive) return
@@ -37,9 +40,9 @@ class WAAutoClickService : AccessibilityService() {
         // ─────────────────────────────────────────────────────────────
         // 1. WHATSAPP AUTOMATION FLOW
         // ─────────────────────────────────────────────────────────────
-        if ((packageName == "com.whatsapp.w4b" || packageName == "com.whatsapp") &&
-            AutomationState.platform == "WHATSAPP") {
-
+        if ((pkg == "com.whatsapp.w4b" || pkg == "com.whatsapp") &&
+            (AutomationState.platform == "WHATSAPP" || AutomationState.currentTaskType == "WHATSAPP")
+        ) {
             if (!isProcessing) {
                 Log.d(TAG, "WhatsApp task detected. Starting auto-click...")
                 isProcessing = true
@@ -53,11 +56,11 @@ class WAAutoClickService : AccessibilityService() {
         // ─────────────────────────────────────────────────────────────
         // 2. TWITTER (X) AUTOMATION FLOW (Delegated to TwitterAutomationHandler)
         // ─────────────────────────────────────────────────────────────
-        if (packageName == "com.twitter.android" && AutomationState.platform == "TWITTER") {
+        if (pkg == "com.twitter.android" && AutomationState.platform == "TWITTER") {
             if (!isProcessing) {
                 isProcessing = true
                 handler.removeCallbacks(safetyResetRunnable)
-                handler.postDelayed(safetyResetRunnable, 60000) // 60s timeout for full multi-phase Twitter DM flow
+                handler.postDelayed(safetyResetRunnable, 25000) // 25s timeout for network/page load
 
                 TwitterAutomationHandler.startTwitterFlow(
                     service = this,
@@ -70,6 +73,66 @@ class WAAutoClickService : AccessibilityService() {
                     }
                 )
             }
+            return
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // 3. YOUTUBE AUTOMATION FLOW (Delegated to YouTubeAutomationHandler)
+        // ─────────────────────────────────────────────────────────────
+        if (pkg == "com.google.android.youtube" &&
+            (AutomationState.platform == "YOUTUBE" || AutomationState.currentTaskType == "YOUTUBE")
+        ) {
+            youTubeHandler.handleEvent(event)
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // 4. INSTAGRAM AUTOMATION FLOW (Delegated to InstagramAutomationHandler)
+        // ─────────────────────────────────────────────────────────────
+        if (pkg == "com.instagram.android" &&
+            (AutomationState.platform == "INSTAGRAM" || AutomationState.currentTaskType == "INSTAGRAM")
+        ) {
+            if (!isProcessing) {
+                isProcessing = true
+                handler.removeCallbacks(safetyResetRunnable)
+                handler.postDelayed(safetyResetRunnable, 25000)
+
+                InstagramAutomationHandler.startInstagramFlow(
+                    service = this,
+                    handler = handler,
+                    onFinish = {
+                        closeAppAndGoHome()
+                    },
+                    onError = {
+                        resetState()
+                    }
+                )
+            }
+            return
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // 5. FACEBOOK AUTOMATION FLOW (Delegated to FacebookAutomationHandler)
+        // ─────────────────────────────────────────────────────────────
+        if ((pkg == "com.facebook.katana" || pkg == "com.facebook.orca") &&
+            (AutomationState.platform == "FACEBOOK" || AutomationState.currentTaskType == "FACEBOOK")
+        ) {
+            if (!isProcessing) {
+                isProcessing = true
+                handler.removeCallbacks(safetyResetRunnable)
+                handler.postDelayed(safetyResetRunnable, 25000)
+
+                FacebookAutomationHandler.startFacebookFlow(
+                    service = this,
+                    handler = handler,
+                    onFinish = {
+                        closeAppAndGoHome()
+                    },
+                    onError = {
+                        resetState()
+                    }
+                )
+            }
+            return
         }
     }
 
@@ -95,11 +158,11 @@ class WAAutoClickService : AccessibilityService() {
 
         if (sendButton != null) {
             Log.d(TAG, "WhatsApp: Send button found! Clicking...")
-            clickNode(sendButton)
+            performClick(sendButton)
             reportTaskStatus("COMPLETED")
 
             handler.postDelayed({
-                Log.d(TAG, "Closing WhatsApp...")
+                Log.d(TAG, "Closing WhatsApp and returning Home...")
                 closeAppAndGoHome()
             }, 3000)
             return
@@ -129,22 +192,28 @@ class WAAutoClickService : AccessibilityService() {
         }, 800)
     }
 
-
-
-
-
     // ─────────────────────────────────────────────────────────────────
     // COMMON UTILS & TASK REPORTING
     // ─────────────────────────────────────────────────────────────────
-    private fun clickNode(node: AccessibilityNodeInfo) {
-        if (node.isClickable) {
+    fun performClick(node: AccessibilityNodeInfo?): Boolean {
+        var current = node
+        for (i in 0..3) {
+            if (current == null) break
+            if (current.isClickable) {
+                return current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+            current = current.parent
+        }
+        return false
+    }
+
+    fun clickNode(node: AccessibilityNodeInfo) {
+        if (!performClick(node)) {
             node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-        } else {
-            node.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         }
     }
 
-    private fun closeAppAndGoHome() {
+    fun closeAppAndGoHome() {
         performGlobalAction(GLOBAL_ACTION_HOME)
         handler.postDelayed({
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -158,7 +227,10 @@ class WAAutoClickService : AccessibilityService() {
         handler.removeCallbacks(safetyResetRunnable)
         AutomationState.isAutomationActive = false
         AutomationState.platform = "WHATSAPP"
+        AutomationState.currentTaskType = "WHATSAPP"
+        AutomationState.taskType = "WHATSAPP"
         AutomationState.twitterPhase = "IDLE"
+        AutomationState.currentTaskId = null
         isProcessing = false
         Log.d(TAG, "State reset completed. Ready for next server task.")
     }
@@ -167,13 +239,18 @@ class WAAutoClickService : AccessibilityService() {
         val serverBaseUrl = AutomationState.serverBaseUrl
         val taskId = AutomationState.currentTaskId
 
-        if (serverBaseUrl != null && taskId != null) {
+        if (serverBaseUrl != null && taskId != null && taskId != "TEST_LOCAL") {
             Thread {
                 try {
-                    val url = java.net.URL("$serverBaseUrl/masters/api/tasks/$taskId/complete/")
+                    val endpoint = "$serverBaseUrl/masters/api/tasks/$taskId/complete/"
+                    val url = java.net.URL(endpoint)
                     val connection = url.openConnection() as java.net.HttpURLConnection
                     connection.requestMethod = "POST"
                     connection.setRequestProperty("Content-Type", "application/json")
+                    val deviceToken = AutomationState.deviceToken ?: getSharedPreferences("AppPrefs", Context.MODE_PRIVATE).getString("device_token", null)
+                    if (!deviceToken.isNullOrEmpty()) {
+                        connection.setRequestProperty("X-Device-Token", deviceToken)
+                    }
                     connection.doOutput = true
 
                     val outputStream = connection.outputStream
@@ -190,9 +267,8 @@ class WAAutoClickService : AccessibilityService() {
         }
     }
 
-
-
     override fun onInterrupt() {
         resetState()
+        youTubeHandler.resetState()
     }
 }

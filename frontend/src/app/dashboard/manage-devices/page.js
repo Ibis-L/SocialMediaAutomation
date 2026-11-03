@@ -34,8 +34,8 @@ export default function ManageDevicesPage() {
           if (resolvedHost === "localhost" || resolvedHost === "127.0.0.1") {
             resolvedHost = ipData.preferredIp && ipData.preferredIp !== "localhost" ? ipData.preferredIp : resolvedHost;
           }
-          if (!resolvedHost || resolvedHost === "localhost" || resolvedHost.startsWith("172.")) {
-            resolvedHost = "192.168.0.109";
+          if (!resolvedHost || resolvedHost === "localhost" || resolvedHost.startsWith("172.") || resolvedHost === "192.168.0.109") {
+            resolvedHost = (ipData.ips && ipData.ips.find(i => /^192\.168\./.test(i.address))?.address) || ipData.preferredIp || (detectedIps[0]?.address || "");
           }
           setServerHost(resolvedHost);
 
@@ -96,10 +96,10 @@ export default function ManageDevicesPage() {
     if (!newDevicePhone) return;
     
     let host = (serverHost || "").trim();
-    if (!host || host === "localhost" || host.startsWith("172.")) {
+    if (!host || host === "localhost" || host.startsWith("172.") || host === "192.168.0.109") {
       host = (window.location.hostname && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") 
         ? window.location.hostname 
-        : "192.168.0.109";
+        : (detectedIps.find(i => /^192\.168\./.test(i.address))?.address || detectedIps[0]?.address || "");
     }
 
     let baseUrl;

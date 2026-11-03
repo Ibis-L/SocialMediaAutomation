@@ -302,3 +302,17 @@ class AppReleaseAdmin(admin.ModelAdmin):
     list_display = ['version_name', 'version_code', 'is_mandatory', 'created_at']
     list_filter = ['is_mandatory']
     search_fields = ['version_name', 'release_notes']
+
+from .models import YouTubeTask, YouTubeVideo
+
+@admin.register(YouTubeVideo)
+class YouTubeVideoAdmin(admin.ModelAdmin):
+    list_display = ('title', 'is_made_for_kids', 'comments_enabled', 'created_at')
+    search_fields = ('title', 'description')
+
+@admin.register(YouTubeTask)
+class YouTubeTaskAdmin(admin.ModelAdmin):
+    list_display = ('title', 'device', 'status', 'created_at', 'processed_at')
+    list_filter = ('status', 'device')
+    search_fields = ('title', 'description', 'device__phone_number')
+

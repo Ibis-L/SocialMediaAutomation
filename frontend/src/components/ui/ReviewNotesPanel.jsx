@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { getApiBaseUrl } from "@/lib/api";
 
 /**
  * ReviewNotesPanel — quick-tag chips, reviewer comments, and add-note input.
@@ -27,7 +26,7 @@ export default function ReviewNotesPanel({ articleId, notes = [], onNoteAdded })
     
     setIsPosting(true);
     try {
-      const res = await fetch(`${getApiBaseUrl()}/masters/api/editor/article/${articleId}/add_note/`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/${articleId}/add_note/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

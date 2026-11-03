@@ -6,15 +6,16 @@ import { useState } from "react";
  * ComposeSocialPost — compose form for social media posts.
  *
  * Props:
- *  - selectedNews: { id, headline, status, category }
+ *  - selectedNews: { id, headline, status, category, source_url }
  *  - caption:      string (default caption text)
  *  - hashtags:     string[]
  */
 
 const MEDIA_TYPES = ["Image", "Carousel", "Reel / Video", "Link Card"];
 const PUBLISH_PLATFORMS = [
-  { id: "facebook",  label: "Facebook",    color: "#1877F2" },
+  { id: "whatsapp",  label: "WhatsApp",    color: "#25D366" },
   { id: "instagram", label: "Instagram",   color: "#C910B5" },
+  { id: "facebook",  label: "Facebook",    color: "#1877F2" },
   { id: "twitter",   label: "X (Twitter)", color: "#000000" },
   { id: "linkedin",  label: "LinkedIn",    color: "#0A66C2" },
   { id: "telegram",  label: "Telegram",    color: "#229ED9" },
@@ -29,14 +30,113 @@ export default function ComposeSocialPost({
   const [mediaType, setMediaType] = useState("Image");
   const [captionText, setCaptionText] = useState(caption);
   const [selectedPlatforms, setSelectedPlatforms] = useState({
-    facebook: true, instagram: true, twitter: true, linkedin: true,
-    telegram: false, youtube: false,
+    whatsapp: true,
+    instagram: true,
+    facebook: false,
+    twitter: false,
+    linkedin: false,
+    telegram: false,
+    youtube: false,
   });
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishStatus, setPublishStatus] = useState(null);
 
   const togglePlatform = (id) =>
     setSelectedPlatforms((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const activeCount = Object.values(selectedPlatforms).filter(Boolean).length;
+
+  const handleSubmit = async () => {
+    const activePlatforms = Object.keys(selectedPlatforms).filter((k) => selectedPlatforms[k]);
+    if (activePlatforms.length === 0) {
+      alert("Please select at least one platform to publish.");
+      return;
+    }
+
+    setIsPublishing(true);
+    setPublishStatus(null);
+
+    // Prepare full message
+    let fullMessage = captionText || selectedNews?.headline || "News Update";
+    if (hashtags && hashtags.length > 0) {
+      fullMessage += `\n\n${hashtags.join(" ")}`;
+    }
+    if (selectedNews?.source_url) {
+      fullMessage += `\n\nRead more: ${selectedNews.source_url}`;
+    }
+
+    try {
+      // 1. Fetch available connected devices
+      let targetDevices = [];
+      try {
+        const devRes = await fetch("/api/devices", { cache: "no-store" });
+        if (devRes.ok) {
+          const devData = await devRes.json();
+          targetDevices = Array.isArray(devData) ? devData : (devData.results || []);
+        }
+      } catch (e) {
+        console.warn("Could not fetch devices:", e);
+      }
+
+      // 2. Build tasks per selected platform
+      const tasks = [];
+      for (const platform of activePlatforms) {
+        if (targetDevices.length > 0) {
+          targetDevices.forEach((dev) => {
+            const contacts = dev.contacts && dev.contacts.length > 0
+              ? dev.contacts.map((c) => c.phone_number)
+              : [dev.phone_number];
+
+            contacts.forEach((contactNumber) => {
+              tasks.push({
+                device_id: dev.id,
+                contact_number: contactNumber,
+                message: fullMessage,
+                platform: platform,
+              });
+            });
+          });
+        } else {
+          // If no devices registered yet, still queue task for first device ID or placeholder
+          tasks.push({
+            device_id: 1,
+            contact_number: "Default",
+            message: fullMessage,
+            platform: platform,
+          });
+        }
+      }
+
+      // 3. Send tasks to the enqueue endpoint
+      const res = await fetch("/api/send-whatsapp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tasks }),
+      });
+
+      const data = await res.json();
+      if (res.ok || data.success) {
+        setPublishStatus({
+          type: "success",
+          message: `Queued ${tasks.length} task(s) for ${activePlatforms.join(", ")}!`,
+        });
+        setTimeout(() => setPublishStatus(null), 4000);
+      } else {
+        setPublishStatus({
+          type: "error",
+          message: data.error || data.message || "Failed to queue tasks.",
+        });
+      }
+    } catch (err) {
+      console.error("Publishing error:", err);
+      setPublishStatus({
+        type: "error",
+        message: "Failed to connect to backend queue service.",
+      });
+    } finally {
+      setIsPublishing(false);
+    }
+  };
 
   return (
     <div className="bg-brand-card border border-brand-border rounded flex flex-col overflow-hidden">
@@ -47,6 +147,19 @@ export default function ComposeSocialPost({
       </div>
 
       <div className="px-5 py-4 flex flex-col gap-6">
+        {/* Status Notification */}
+        {publishStatus && (
+          <div
+            className={`p-3 rounded text-xs font-inter border ${
+              publishStatus.type === "success"
+                ? "bg-green-50 border-green-200 text-green-800"
+                : "bg-red-50 border-red-200 text-red-800"
+            }`}
+          >
+            {publishStatus.message}
+          </div>
+        )}
+
         {/* Selected News */}
         <div>
           <p className="font-label text-[10px] tracking-[0.03em] text-[#727272] uppercase mb-2">
@@ -60,7 +173,7 @@ export default function ComposeSocialPost({
                   {selectedNews?.headline || "Punjab cabinet clears ₹2,400 cr infrastructure package"}
                 </p>
                 <p className="font-label text-[10px] text-[#727272] capitalize">
-                  {selectedNews?.id} · {selectedNews?.status} · {selectedNews?.category}
+                  {selectedNews?.id || "N-101"} · {selectedNews?.status || "APPROVED"} · {selectedNews?.category || "NEWS"}
                 </p>
               </div>
             </div>
@@ -131,7 +244,7 @@ export default function ComposeSocialPost({
         {/* Publish To */}
         <div>
           <p className="font-label text-[10px] tracking-[0.03em] text-brand-muted uppercase mb-2">
-            Publish To.
+            Publish To
           </p>
           <div className="flex gap-2 flex-wrap">
             {PUBLISH_PLATFORMS.map((p) => (
@@ -160,9 +273,11 @@ export default function ComposeSocialPost({
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px", marginTop: "12px" }}>
           <button
             id="publish-btn"
-            className="py-3 rounded bg-brand-red text-white font-inter text-[12px] font-semibold flex items-center justify-center hover:bg-red-700 active:scale-[0.98] transition-all"
+            onClick={handleSubmit}
+            disabled={isPublishing || activeCount === 0}
+            className="py-3 rounded bg-brand-red text-white font-inter text-[12px] font-semibold flex items-center justify-center hover:bg-red-700 active:scale-[0.98] transition-all disabled:opacity-50"
           >
-            Publish to {activeCount} Platforms
+            {isPublishing ? "Publishing..." : `Publish to ${activeCount} Platform${activeCount !== 1 ? "s" : ""}`}
           </button>
           <button
             id="schedule-social-btn"
