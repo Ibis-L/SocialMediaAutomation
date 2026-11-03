@@ -229,7 +229,8 @@ object FacebookAutomationHandler {
                     connection.doOutput = true
 
                     val outputStream = connection.outputStream
-                    outputStream.write("{"status":"$status"}".toByteArray(Charsets.UTF_8))
+                    val jsonStr = "{\"status\":\"$status\"}"
+                    outputStream.write(jsonStr.toByteArray(Charsets.UTF_8))
                     outputStream.flush()
                     outputStream.close()
 
