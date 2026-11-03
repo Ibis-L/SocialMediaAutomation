@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { getApiBaseUrl } from "@/lib/api";
 import {
   Send,
   CheckCircle2,
@@ -69,7 +68,7 @@ export default function TwitterDashboardPage() {
     if (isManual) setRefreshingNews(true);
     try {
       const res = await fetch(
-        `${getApiBaseUrl()}/masters/api/editor/article/?status=APPROVED`,
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/masters/api/editor/article/?status=APPROVED`,
         { cache: "no-store" }
       );
       if (res.ok) {

@@ -2,9 +2,32 @@ from rest_framework import viewsets, permissions, views, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
+from django.conf import settings
 from datetime import timedelta
+import secrets
 from .models import ScrapedArticle, TemplateConfig, ScrapeLog, WhatsAppDevice, WhatsAppTask, TwitterTarget, TwitterTask
 from .serializers import ScrapedArticleSerializer, DashboardSourceSerializer, ScrapeLogSerializer, WhatsAppDeviceSerializer, WhatsAppTaskSerializer, TwitterTargetSerializer, TwitterTaskSerializer
+
+def is_authorized_device_or_internal(request, device=None):
+    """
+    Validates request authenticity against:
+    1. Internal secret from frontend proxy (X-Internal-Secret)
+    2. Device token from physical Android app (X-Device-Token)
+    3. Authenticated session/JWT user (request.user.is_authenticated)
+    """
+    internal_secret = request.headers.get('X-Internal-Secret')
+    expected_secret = getattr(settings, 'INTERNAL_API_SECRET', None)
+    if internal_secret and expected_secret and internal_secret == expected_secret:
+        return True
+
+    if request.user and request.user.is_authenticated:
+        return True
+
+    device_token = request.headers.get('X-Device-Token')
+    if device and device_token and device.api_token and device_token == device.api_token:
+        return True
+
+    return False
 
 class ScrapedArticleViewSet(viewsets.ModelViewSet):
     """
@@ -163,25 +186,42 @@ class WhatsAppDeviceViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         phone_number = request.data.get('phone_number')
-        name = request.data.get('name', '')
+        name = request.data.get('name', 'Android Device')
         twitter_handle = request.data.get('twitter_handle', '')
-        if phone_number:
-            defaults = {'last_heartbeat': timezone.now()}
+        if not phone_number:
+            return Response({"error": "phone_number is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        device = WhatsAppDevice.objects.filter(phone_number=phone_number).first()
+        status_code = status.HTTP_200_OK if device else status.HTTP_201_CREATED
+
+        if not device:
+            device = WhatsAppDevice(phone_number=phone_number, name=name or 'Android Device')
+        else:
             if name:
-                defaults['name'] = name
-            if twitter_handle:
-                defaults['twitter_handle'] = twitter_handle
-            device, created = WhatsAppDevice.objects.update_or_create(
-                phone_number=phone_number,
-                defaults=defaults
-            )
-            serializer = self.get_serializer(device)
-            return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
-        return super().create(request, *args, **kwargs)
+                device.name = name
+
+        if twitter_handle:
+            device.twitter_handle = twitter_handle
+
+        if not device.api_token:
+            device.api_token = secrets.token_hex(32)
+        device.last_heartbeat = timezone.now()
+        device.save()
+
+        serializer = self.get_serializer(device)
+        return Response(serializer.data, status=status_code)
+
+    def destroy(self, request, *args, **kwargs):
+        if not is_authorized_device_or_internal(request):
+            return Response({"error": "Unauthorized: Invalid or missing internal secret"}, status=status.HTTP_401_UNAUTHORIZED)
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])
     def add_contact(self, request, pk=None):
         device = self.get_object()
+        if not is_authorized_device_or_internal(request, device):
+            return Response({"error": "Unauthorized: Invalid or missing device token"}, status=status.HTTP_401_UNAUTHORIZED)
+
         phone_number = request.data.get('phone_number')
         name = request.data.get('name', '')
         
@@ -218,17 +258,21 @@ class WhatsAppDeviceViewSet(viewsets.ModelViewSet):
             
         from django.utils import timezone
         device = WhatsAppDevice.objects.filter(phone_number=phone).first()
-        if device:
-            if battery_level is not None:
-                device.battery_level = int(battery_level)
-            if battery_status is not None:
-                device.battery_status = battery_status
-            if temperature is not None:
-                device.temperature = float(temperature)
-            device.last_heartbeat = timezone.now()
-            device.save()
-            return Response({"success": True})
-        return Response({"error": "Device not found"}, status=404)
+        if not device:
+            return Response({"error": "Device not found"}, status=404)
+
+        if not is_authorized_device_or_internal(request, device):
+            return Response({"error": "Unauthorized: Invalid or missing device token"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if battery_level is not None:
+            device.battery_level = int(battery_level)
+        if battery_status is not None:
+            device.battery_status = battery_status
+        if temperature is not None:
+            device.temperature = float(temperature)
+        device.last_heartbeat = timezone.now()
+        device.save()
+        return Response({"success": True})
 
 class WhatsAppTaskViewSet(viewsets.ModelViewSet):
     queryset = WhatsAppTask.objects.all().order_by('-created_at')
@@ -237,21 +281,26 @@ class WhatsAppTaskViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def enqueue_bulk(self, request):
+        if not is_authorized_device_or_internal(request):
+            return Response({"error": "Unauthorized: Invalid or missing internal secret"}, status=status.HTTP_401_UNAUTHORIZED)
+
         # Expected payload: { "tasks": [ { "device_id": 1, "contact_number": "+91...", "message": "..." } ] }
         tasks_data = request.data.get('tasks', [])
         created_count = 0
         for task in tasks_data:
             device_id = task.get('device_id')
-            contact_number = task.get('contact_number')
+            contact_number = str(task.get('contact_number') or '').strip()
             message = task.get('message')
+            platform = str(task.get('platform') or 'whatsapp').strip().lower()
             
             if device_id and contact_number and message:
                 try:
                     device = WhatsAppDevice.objects.get(id=device_id)
                     WhatsAppTask.objects.create(
                         device=device,
-                        contact_number=contact_number,
+                        contact_number=contact_number[:500],
                         message=message,
+                        platform=platform,
                         status='PENDING'
                     )
                     created_count += 1
@@ -261,36 +310,126 @@ class WhatsAppTaskViewSet(viewsets.ModelViewSet):
         return Response({"success": True, "queued": created_count})
 
     @action(detail=False, methods=['get'])
+    def unified_queue(self, request):
+        """Returns unified queue containing both WhatsApp and YouTube tasks ordered by created_at desc."""
+        from .models import YouTubeTask
+        wa_tasks = WhatsAppTask.objects.select_related('device').all()
+        yt_tasks = YouTubeTask.objects.select_related('device', 'video').all()
+
+        unified = []
+        for t in wa_tasks:
+            task_platform = getattr(t, 'platform', 'whatsapp') or 'whatsapp'
+            unified.append({
+                "id": f"wa-{t.id}",
+                "raw_id": t.id,
+                "task_type": task_platform.upper(),
+                "platform": task_platform.lower(),
+                "status": t.status,
+                "device_id": t.device.id if t.device else None,
+                "device_name": t.device.name if t.device else "",
+                "device_phone": t.device.phone_number if t.device else "",
+                "target": t.contact_number,
+                "details": t.message,
+                "created_at": t.created_at,
+                "processed_at": t.processed_at
+            })
+
+        for yt in yt_tasks:
+            target_title = yt.title or (yt.video.title if yt.video else "YouTube Upload")
+            details = yt.description or (yt.video.description if yt.video else target_title)
+            unified.append({
+                "id": f"yt-{yt.id}",
+                "raw_id": yt.id,
+                "task_type": "YOUTUBE",
+                "status": yt.status,
+                "device_id": yt.device.id if yt.device else None,
+                "device_name": yt.device.name if yt.device else "",
+                "device_phone": yt.device.phone_number if yt.device else "",
+                "target": target_title,
+                "details": details,
+                "created_at": yt.created_at,
+                "processed_at": yt.processed_at
+            })
+
+        # Sort descending by created_at
+        unified.sort(key=lambda x: x["created_at"], reverse=True)
+        return Response(unified)
+
+    @action(detail=False, methods=['get'])
     def poll(self, request):
         # Called by Android App: /api/tasks/poll/?deviceId=device_id_or_phone
         device_identifier = request.query_params.get('deviceId')
         if not device_identifier:
             return Response({"hasTask": False, "error": "Missing deviceId query parameter"}, status=400)
         
-        # Find device by phone_number (or try by ID if it's numeric, but usually phone_number is used as the unique ID)
+        # Find device by phone_number (resilient to URL decoded + or space)
         device = WhatsAppDevice.objects.filter(phone_number=device_identifier).first()
-        if not device:
-            # Maybe the phone sent the database ID
-            if device_identifier.isdigit():
-                device = WhatsAppDevice.objects.filter(id=device_identifier).first()
+        if not device and device_identifier.startswith(' '):
+            device = WhatsAppDevice.objects.filter(phone_number='+' + device_identifier.lstrip()).first()
+        if not device and not device_identifier.startswith('+'):
+            device = WhatsAppDevice.objects.filter(phone_number='+' + device_identifier).first()
+        if not device and device_identifier.isdigit():
+            device = WhatsAppDevice.objects.filter(id=device_identifier).first()
         
         if not device:
             return Response({"hasTask": False, "error": "Device not registered"})
             
-        # Get oldest pending task for this device
-        task = WhatsAppTask.objects.filter(device=device, status='PENDING').order_by('created_at').first()
-        
-        if task:
-            # Mark it as processing (so it doesn't get picked up again immediately)
-            task.status = 'PROCESSING'
-            task.processed_at = timezone.now()
-            task.save()
+        if not is_authorized_device_or_internal(request, device):
+            return Response({"hasTask": False, "error": "Unauthorized: Invalid or missing device token"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        from .models import YouTubeTask
+
+        # 1. Auto-fail stale PROCESSING tasks (> 10 minutes) to avoid permanent queue stalls
+        stuck_cutoff = timezone.now() - timedelta(minutes=10)
+        YouTubeTask.objects.filter(device=device, status='PROCESSING', processed_at__lt=stuck_cutoff).update(status='FAILED')
+        WhatsAppTask.objects.filter(device=device, status='PROCESSING', processed_at__lt=stuck_cutoff).update(status='FAILED')
+
+        # 2. Strict FIFO Fair Queuing: compare created_at between oldest pending YouTube and WhatsApp tasks
+        yt_task = YouTubeTask.objects.filter(device=device, status='PENDING').order_by('created_at').first()
+        wa_task = WhatsAppTask.objects.filter(device=device, status='PENDING').order_by('created_at').first()
+
+        chosen_type = None
+        if yt_task and wa_task:
+            chosen_type = 'YOUTUBE' if yt_task.created_at <= wa_task.created_at else 'WHATSAPP'
+        elif yt_task:
+            chosen_type = 'YOUTUBE'
+        elif wa_task:
+            chosen_type = 'WHATSAPP'
+
+        if chosen_type == 'YOUTUBE':
+            yt_task.status = 'PROCESSING'
+            yt_task.processed_at = timezone.now()
+            yt_task.save()
+
+            video_url = ""
+            if yt_task.video_file:
+                video_url = request.build_absolute_uri(yt_task.video_file.url)
+            elif yt_task.video and yt_task.video.video_file:
+                video_url = request.build_absolute_uri(yt_task.video.video_file.url)
+
+            return Response({
+                "hasTask": True,
+                "taskType": "YOUTUBE",
+                "taskId": yt_task.id,
+                "videoUrl": video_url,
+                "title": yt_task.title or (yt_task.video.title if yt_task.video else "Video Update"),
+                "description": yt_task.description or (yt_task.video.description if yt_task.video else ""),
+                "isMadeForKids": yt_task.is_made_for_kids,
+                "commentsEnabled": yt_task.comments_enabled,
+            })
+
+        elif chosen_type == 'WHATSAPP':
+            wa_task.status = 'PROCESSING'
+            wa_task.processed_at = timezone.now()
+            wa_task.save()
             
             return Response({
                 "hasTask": True,
-                "taskId": task.id,
-                "phoneNumber": task.contact_number,
-                "message": task.message
+                "taskType": (getattr(wa_task, 'platform', 'WHATSAPP') or "WHATSAPP").upper(),
+                "platform": getattr(wa_task, 'platform', 'whatsapp') or "whatsapp",
+                "taskId": wa_task.id,
+                "phoneNumber": wa_task.contact_number,
+                "message": wa_task.message
             })
             
         return Response({"hasTask": False})
@@ -299,10 +438,13 @@ class WhatsAppTaskViewSet(viewsets.ModelViewSet):
     def complete(self, request, pk=None):
         try:
             task = self.get_object()
-            status = request.data.get('status', 'COMPLETED')
+            if not is_authorized_device_or_internal(request, task.device):
+                return Response({"error": "Unauthorized: Invalid or missing device token"}, status=status.HTTP_401_UNAUTHORIZED)
+
+            status_val = request.data.get('status', 'COMPLETED')
             
-            if status in ['COMPLETED', 'FAILED']:
-                task.status = status
+            if status_val in ['COMPLETED', 'FAILED']:
+                task.status = status_val
                 from django.utils import timezone
                 task.processed_at = timezone.now()
                 task.save()
@@ -312,8 +454,75 @@ class WhatsAppTaskViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
-from .models import AppRelease
-from .serializers import AppReleaseSerializer
+from .models import AppRelease, YouTubeTask, YouTubeVideo
+from .serializers import AppReleaseSerializer, YouTubeTaskSerializer, YouTubeVideoSerializer
+
+class YouTubeVideoViewSet(viewsets.ModelViewSet):
+    queryset = YouTubeVideo.objects.all().order_by('-created_at')
+    serializer_class = YouTubeVideoSerializer
+    permission_classes = [permissions.AllowAny]
+
+class YouTubeTaskViewSet(viewsets.ModelViewSet):
+    queryset = YouTubeTask.objects.all().order_by('-created_at')
+    serializer_class = YouTubeTaskSerializer
+    permission_classes = [permissions.AllowAny]
+
+    @action(detail=False, methods=['post'])
+    def enqueue_bulk(self, request):
+        if not is_authorized_device_or_internal(request):
+            return Response({"error": "Unauthorized: Invalid or missing internal secret"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        video_id = request.data.get('video_id')
+        device_ids = request.data.get('device_ids', [])
+        title = request.data.get('title')
+        description = request.data.get('description')
+        is_made_for_kids = request.data.get('is_made_for_kids', True)
+        comments_enabled = request.data.get('comments_enabled', True)
+
+        if not video_id:
+            return Response({"error": "video_id is required"}, status=400)
+        if not device_ids:
+            return Response({"error": "At least one device_id is required"}, status=400)
+
+        video = YouTubeVideo.objects.filter(id=video_id).first()
+        if not video:
+            return Response({"error": "Video not found"}, status=404)
+
+        created_tasks = []
+        for d_id in device_ids:
+            device = WhatsAppDevice.objects.filter(id=d_id).first()
+            if device:
+                task = YouTubeTask.objects.create(
+                    device=device,
+                    video=video,
+                    video_file=video.video_file,
+                    title=title or video.title,
+                    description=description or (video.description or ""),
+                    is_made_for_kids=bool(is_made_for_kids),
+                    comments_enabled=bool(comments_enabled),
+                    status='PENDING'
+                )
+                created_tasks.append(task.id)
+
+        return Response({"success": True, "created_count": len(created_tasks), "task_ids": created_tasks})
+
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        try:
+            task = self.get_object()
+            if not is_authorized_device_or_internal(request, task.device):
+                return Response({"error": "Unauthorized: Invalid or missing device token"}, status=status.HTTP_401_UNAUTHORIZED)
+
+            status_val = request.data.get('status', 'COMPLETED')
+            if status_val in ['COMPLETED', 'FAILED']:
+                task.status = status_val
+                from django.utils import timezone
+                task.processed_at = timezone.now()
+                task.save()
+                return Response({"success": True, "status": task.status})
+            return Response({"error": "Invalid status"}, status=400)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
 
 class AppReleaseViewSet(viewsets.ModelViewSet):
     queryset = AppRelease.objects.all().order_by('-version_code')
@@ -332,5 +541,4 @@ class AppReleaseViewSet(viewsets.ModelViewSet):
 # TWITTER (X) INTEGRATION (Extracted to dedicated twitter_views.py)
 # ─────────────────────────────────────────────────────────────────────────────
 from .twitter_views import TwitterTargetViewSet, TwitterTaskViewSet
-
 

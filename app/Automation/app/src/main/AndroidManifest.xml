@@ -50,7 +50,11 @@
             android:name=".PollingService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Automation task queue polling" />
+        </service>
 
         <!-- Accessibility Auto-Clicker Service -->
         <service
@@ -78,11 +82,15 @@
 
     </application>
 
-    <!-- Required for Android 11+ to query WhatsApp & Twitter -->
+    <!-- Required for Android 11+ to query WhatsApp, Twitter, YouTube, Instagram & Facebook -->
     <queries>
         <package android:name="com.whatsapp.w4b" />
         <package android:name="com.whatsapp" />
         <package android:name="com.twitter.android" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.instagram.android" />
+        <package android:name="com.facebook.katana" />
+        <package android:name="com.facebook.orca" />
     </queries>
 
 </manifest>

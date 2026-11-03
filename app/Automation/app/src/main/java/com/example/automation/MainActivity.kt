@@ -1,12 +1,14 @@
 package com.example.automation
 
 import android.app.KeyguardManager
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.text.TextUtils
 import android.view.View
 import android.view.WindowManager
@@ -16,8 +18,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanIntentResult
 import com.journeyapps.barcodescanner.ScanOptions
@@ -47,6 +49,9 @@ class MainActivity : AppCompatActivity() {
         // Check for OTA Updates
         val prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
         val serverBaseUrl = prefs.getString("server_url", BuildConfig.API_BASE_URL) ?: BuildConfig.API_BASE_URL
+        AutomationState.serverBaseUrl = serverBaseUrl
+        AutomationState.deviceToken = prefs.getString("device_token", null)
+
         if (serverBaseUrl.isNotEmpty()) {
             UpdateChecker(this, serverBaseUrl).checkForUpdates()
         }
@@ -123,7 +128,8 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
         val tvDeviceConfig = findViewById<TextView>(R.id.tvDeviceConfig)
         
-        tvDeviceConfig.text = "Connecting to $cleanUrl..."
+        tvDeviceConfig?.text = "Connecting to $cleanUrl..."
+        AutomationState.serverBaseUrl = cleanUrl
         
         thread {
             try {
@@ -146,9 +152,22 @@ class MainActivity : AppCompatActivity() {
                 os.close()
                 
                 val responseCode = connection.responseCode
+                if (responseCode == HttpURLConnection.HTTP_CREATED || responseCode == HttpURLConnection.HTTP_OK) {
+                    try {
+                        val respText = connection.inputStream.bufferedReader().use { it.readText() }
+                        val respJson = JSONObject(respText)
+                        val apiToken = respJson.optString("api_token", "")
+                        if (apiToken.isNotEmpty()) {
+                            prefs.edit().putString("device_token", apiToken).apply()
+                            AutomationState.deviceToken = apiToken
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
                 runOnUiThread {
                     if (responseCode == HttpURLConnection.HTTP_CREATED || responseCode == HttpURLConnection.HTTP_OK || responseCode == 400) {
-                        tvDeviceConfig.text = "Configured: $phone\n($cleanUrl)"
+                        tvDeviceConfig?.text = "Configured: $phone\n($cleanUrl)"
                         prefs.edit()
                             .putString("server_url", cleanUrl)
                             .putString("device_phone", phone)
@@ -197,8 +216,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         val etUrl = EditText(this).apply {
-            hint = "Server URL (e.g. http://192.168.0.109:8000)"
-            setText(if (currentUrl.isNotEmpty()) currentUrl else "http://192.168.0.109:8000")
+            hint = "Server URL (e.g. http://<server-ip>:8000)"
+            setText(currentUrl)
         }
 
         val etPhone = EditText(this).apply {
@@ -229,8 +248,6 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .show()
     }
-
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -245,12 +262,40 @@ class MainActivity : AppCompatActivity() {
     private fun handleIntent(intent: Intent?) {
         val tvStatus = findViewById<TextView>(R.id.tvStatus)
 
-        val platform = intent?.getStringExtra("platform") ?: "WHATSAPP"
+        val platform = intent?.getStringExtra("platform") ?: ""
+        val taskType = intent?.getStringExtra("taskType") ?: "WHATSAPP"
         val taskId = intent?.getStringExtra("taskId")
         val message = intent?.getStringExtra("message")
 
-        if (platform == "TWITTER") {
-            val taskType = intent?.getStringExtra("taskType") ?: "DM"
+        // 1. YouTube Task Dispatch
+        if (platform.equals("YOUTUBE", ignoreCase = true) || taskType.equals("YOUTUBE", ignoreCase = true)) {
+            val videoUriStr = intent?.getStringExtra("videoUri")
+            val title = intent?.getStringExtra("title") ?: "Video Update"
+            val description = intent?.getStringExtra("description") ?: ""
+
+            if (!videoUriStr.isNullOrEmpty()) {
+                wakeUpAndDismissLockScreen()
+                tvStatus?.text = "Executing YouTube Task #$taskId\nTitle: $title"
+                AutomationState.currentTaskId = taskId
+                AutomationState.currentTaskType = "YOUTUBE"
+                AutomationState.platform = "YOUTUBE"
+                AutomationState.taskType = "YOUTUBE"
+                AutomationState.videoTitle = title
+                AutomationState.videoDescription = description
+                AutomationState.isMadeForKids = intent.getBooleanExtra("isMadeForKids", true)
+                AutomationState.commentsEnabled = intent.getBooleanExtra("commentsEnabled", true)
+
+                val uri = Uri.parse(videoUriStr)
+                dispatchYouTubeIntent(uri, title, description)
+                return
+            } else {
+                updateWaitingStatus()
+                return
+            }
+        }
+
+        // 2. Twitter Task Dispatch
+        if (platform == "TWITTER" || taskType.startsWith("TWITTER")) {
             val targetHandle = intent?.getStringExtra("targetHandle") ?: ""
 
             if (!message.isNullOrEmpty()) {
@@ -260,33 +305,81 @@ class MainActivity : AppCompatActivity() {
                 AutomationState.taskContent = message
                 AutomationState.isAutomationActive = true
 
-                if (taskType == "TWEET") {
+                if (taskType == "TWEET" || taskType == "TWITTER_TWEET") {
                     tvStatus?.text = "Executing Twitter Task #$taskId\nAction: Posting Custom Tweet"
                     AutomationState.taskType = "TWITTER_TWEET"
+                    AutomationState.currentTaskType = "TWITTER_TWEET"
                     AutomationState.twitterPhase = "TWEET_COMPOSE"
                     dispatchTwitterTweetIntent(message)
                 } else {
                     tvStatus?.text = "Executing Twitter Task #$taskId\nRecipient: $targetHandle (DM / Follow Fallback)"
                     AutomationState.taskType = "TWITTER_DM"
+                    AutomationState.currentTaskType = "TWITTER_DM"
                     AutomationState.targetHandle = targetHandle
                     AutomationState.twitterPhase = "PROFILE_CHECK"
                     dispatchTwitterDmIntent(targetHandle, message)
                 }
+                return
             } else {
                 updateWaitingStatus()
+                return
             }
-        } else {
-            val phoneNumber = intent?.getStringExtra("phoneNumber")
-            if (!phoneNumber.isNullOrEmpty() && !message.isNullOrEmpty()) {
+        }
+
+        // 4. Instagram Task Dispatch
+        if (platform.equals("INSTAGRAM", ignoreCase = true) || taskType.equals("INSTAGRAM", ignoreCase = true)) {
+            val username = intent?.getStringExtra("phoneNumber") ?: intent?.getStringExtra("targetHandle") ?: ""
+            if (!username.isNullOrEmpty() && !message.isNullOrEmpty()) {
                 wakeUpAndDismissLockScreen()
-                tvStatus?.text = "Executing Task #$taskId\nRecipient: $phoneNumber"
+                tvStatus?.text = "Executing Instagram Task #$taskId\nRecipient: $username"
                 AutomationState.currentTaskId = taskId
-                AutomationState.platform = "WHATSAPP"
-                AutomationState.taskType = "WHATSAPP"
-                dispatchWhatsAppIntent(phoneNumber, message)
+                AutomationState.platform = "INSTAGRAM"
+                AutomationState.currentTaskType = "INSTAGRAM"
+                AutomationState.taskType = "INSTAGRAM"
+                AutomationState.targetHandle = username
+                AutomationState.taskContent = message
+                AutomationState.currentMessage = message
+                dispatchInstagramIntent(username, message)
+                return
             } else {
                 updateWaitingStatus()
+                return
             }
+        }
+
+        // 5. Facebook Task Dispatch
+        if (platform.equals("FACEBOOK", ignoreCase = true) || taskType.equals("FACEBOOK", ignoreCase = true)) {
+            val username = intent?.getStringExtra("phoneNumber") ?: intent?.getStringExtra("targetHandle") ?: ""
+            if (!username.isNullOrEmpty() && !message.isNullOrEmpty()) {
+                wakeUpAndDismissLockScreen()
+                tvStatus?.text = "Executing Facebook Task #$taskId\nRecipient: $username"
+                AutomationState.currentTaskId = taskId
+                AutomationState.platform = "FACEBOOK"
+                AutomationState.currentTaskType = "FACEBOOK"
+                AutomationState.taskType = "FACEBOOK"
+                AutomationState.targetHandle = username
+                AutomationState.taskContent = message
+                AutomationState.currentMessage = message
+                dispatchFacebookIntent(username, message)
+                return
+            } else {
+                updateWaitingStatus()
+                return
+            }
+        }
+
+        // 3. WhatsApp Task Dispatch (Default)
+        val phoneNumber = intent?.getStringExtra("phoneNumber")
+        if (!phoneNumber.isNullOrEmpty() && !message.isNullOrEmpty()) {
+            wakeUpAndDismissLockScreen()
+            tvStatus?.text = "Executing WhatsApp Task #$taskId\nRecipient: $phoneNumber"
+            AutomationState.currentTaskId = taskId
+            AutomationState.platform = "WHATSAPP"
+            AutomationState.currentTaskType = "WHATSAPP"
+            AutomationState.taskType = "WHATSAPP"
+            dispatchWhatsAppIntent(phoneNumber, message)
+        } else {
+            updateWaitingStatus()
         }
     }
 
@@ -376,17 +469,56 @@ class MainActivity : AppCompatActivity() {
             intent.setPackage("com.whatsapp.w4b")
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-            // 1. Turn the safety switch ON so the Auto-Clicker knows it is allowed to run
+            // Turn safety switch ON so Auto-Clicker knows it is allowed to run
             AutomationState.isAutomationActive = true
+            AutomationState.currentTaskType = "WHATSAPP"
 
             startActivity(intent)
 
-            // 2. KILL MainActivity instantly so it doesn't loop when the Home/Back button is pressed
+            // Kill MainActivity instantly so it doesn't loop when Home/Back button is pressed
             finish()
 
         } catch (e: Exception) {
             Toast.makeText(this, "WhatsApp Business not installed", Toast.LENGTH_SHORT).show()
             e.printStackTrace()
+            AutomationState.isAutomationActive = false
+        }
+    }
+
+    private fun dispatchYouTubeIntent(videoUri: Uri, title: String, description: String) {
+        try {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "video/*"
+                setPackage("com.google.android.youtube")
+                putExtra(Intent.EXTRA_STREAM, videoUri)
+                clipData = ClipData.newUri(contentResolver, "video", videoUri)
+                putExtra(Intent.EXTRA_TITLE, title)
+                putExtra(Intent.EXTRA_SUBJECT, title)
+                putExtra(Intent.EXTRA_TEXT, description)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            try {
+                grantUriPermission("com.google.android.youtube", videoUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                Log.w("MainActivity", "grantUriPermission ignored: ${e.message}")
+            }
+
+            // Turn safety switch ON so Auto-Clicker knows it is allowed to run
+            AutomationState.isAutomationActive = true
+            AutomationState.currentTaskType = "YOUTUBE"
+            AutomationState.videoTitle = title
+            AutomationState.videoDescription = description
+
+            startActivity(intent)
+
+            // Kill MainActivity so user/accessibility lands cleanly in YouTube
+            finish()
+
+        } catch (e: Exception) {
+            Toast.makeText(this, "YouTube app not installed or error: ${e.message}", Toast.LENGTH_LONG).show()
+            e.printStackTrace()
+            AutomationState.isAutomationActive = false
         }
     }
 
@@ -468,6 +600,74 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Twitter (X) app not installed", Toast.LENGTH_SHORT).show()
                 ex.printStackTrace()
             }
+        }
+    }
+
+    private fun dispatchInstagramIntent(username: String, message: String) {
+        try {
+            val cleanUser = username.removePrefix("@").trim()
+            val uri = Uri.parse("https://ig.me/m/$cleanUser")
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                setPackage("com.instagram.android")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            AutomationState.isAutomationActive = true
+            AutomationState.platform = "INSTAGRAM"
+            AutomationState.currentTaskType = "INSTAGRAM"
+            AutomationState.taskType = "INSTAGRAM"
+            AutomationState.targetHandle = cleanUser
+            AutomationState.taskContent = message
+            AutomationState.currentMessage = message
+            startActivity(intent)
+            finish()
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, "Instagram app not installed", android.widget.Toast.LENGTH_SHORT).show()
+            e.printStackTrace()
+            AutomationState.isAutomationActive = false
+        }
+    }
+
+    private fun dispatchFacebookIntent(username: String, message: String) {
+        try {
+            var clean = username.trim()
+            // Support both direct handles, share links, and full URLs
+            val finalUrl = if (clean.startsWith("http://") || clean.startsWith("https://") || clean.startsWith("fb://")) {
+                clean
+            } else if (clean.contains("facebook.com") || clean.contains("fb.me")) {
+                "https://$clean"
+            } else {
+                val user = clean.removePrefix("@")
+                "https://www.facebook.com/$user"
+            }
+            
+            val uri = Uri.parse(finalUrl)
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                setPackage("com.facebook.katana") // Official Facebook App package name
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            
+            AutomationState.isAutomationActive = true
+            AutomationState.platform = "FACEBOOK"
+            AutomationState.currentTaskType = "FACEBOOK"
+            AutomationState.taskType = "FACEBOOK"
+            AutomationState.targetHandle = finalUrl
+            AutomationState.taskContent = message
+            AutomationState.currentMessage = message
+
+            try {
+                startActivity(intent)
+            } catch (anfe: Exception) {
+                // Fallback without package specification if strict package match fails
+                val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                startActivity(fallbackIntent)
+            }
+            finish()
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, "Facebook app not installed or invalid link", android.widget.Toast.LENGTH_SHORT).show()
+            e.printStackTrace()
+            AutomationState.isAutomationActive = false
         }
     }
 }

@@ -1,4 +1,5 @@
 const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET || "mediatech-automation-secret-token-2026";
 
 export async function POST(request, { params }) {
   try {
@@ -7,7 +8,10 @@ export async function POST(request, { params }) {
 
     const response = await fetch(`${BACKEND_URL}/masters/api/devices/${deviceId}/add_contact/`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "X-Internal-Secret": INTERNAL_SECRET,
+      },
       body: JSON.stringify(body),
     });
 

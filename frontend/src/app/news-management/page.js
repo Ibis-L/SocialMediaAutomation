@@ -18,7 +18,6 @@ import {
   newsTabsData,
   importPreviewData,
 } from "@/data/mockData";
-import { getApiBaseUrl } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 
 export default function NewsManagementPage() {
@@ -33,7 +32,7 @@ export default function NewsManagementPage() {
   const fetchArticles = useCallback(async (showSpinner = false) => {
     if (showSpinner) setRefreshing(true);
     try {
-      const res = await fetch(`${getApiBaseUrl()}/masters/api/editor/article/`, { cache: "no-store" });
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/`, { cache: "no-store" });
       const data = await res.json();
       const mapped = data.map(item => ({
         id: `NWS-${item.id}`,
@@ -121,7 +120,7 @@ export default function NewsManagementPage() {
           formData.append("cover_image", updated.coverImage);
         }
 
-        await fetch(`${getApiBaseUrl()}/masters/api/editor/article/${updated.originalId}/`, {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/${updated.originalId}/`, {
           method: "PATCH",
           body: formData
         });
@@ -139,7 +138,7 @@ export default function NewsManagementPage() {
       // Delete from backend database
       if (article.originalId) {
         try {
-          await fetch(`${getApiBaseUrl()}/masters/api/editor/article/${article.originalId}/`, {
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/${article.originalId}/`, {
             method: "DELETE"
           });
         } catch (err) {

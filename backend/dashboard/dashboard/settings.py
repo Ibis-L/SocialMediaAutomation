@@ -26,6 +26,9 @@ CSRF_TRUSTED_ORIGINS = [
     o.strip() for o in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
 ]
 
+# Internal Service-to-Service Secret for Dashboard proxy requests
+INTERNAL_API_SECRET = os.environ.get('INTERNAL_API_SECRET', 'mediatech-automation-secret-token-2026')
+
 # Ingress ke peeche HTTPS detect karne ke liye
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 

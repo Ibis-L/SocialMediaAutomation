@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Smartphone, Send, CheckCircle2, Users, RefreshCw, Download, QrCode, X, ExternalLink } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import Link from "next/link";
-import { getApiBaseUrl } from "@/lib/api";
 
 export default function ComposePage() {
   const [devices, setDevices] = useState([]);
@@ -56,6 +55,10 @@ export default function ComposePage() {
   }, []);
   
   const [selectedNewsIds, setSelectedNewsIds] = useState([]);
+  const [selectedPlatforms, setSelectedPlatforms] = useState({
+    whatsapp: true,
+    instagram: true,
+  });
   
   // Which device is currently being viewed in the 3rd column
   const [activeDeviceId, setActiveDeviceId] = useState(null);
@@ -81,7 +84,7 @@ export default function ComposePage() {
     if (isManual) setRefreshingNews(true);
     try {
       const newsRes = await fetch(
-        `${getApiBaseUrl()}/masters/api/editor/article/?status=APPROVED`,
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/?status=APPROVED`,
         { cache: "no-store" }
       );
       if (newsRes.ok) {
@@ -188,14 +191,23 @@ export default function ComposePage() {
     });
     const message = messageParts.join("\n");
 
-    // Format tasks for the backend
+    const activePlatforms = Object.keys(selectedPlatforms).filter(k => selectedPlatforms[k]);
+    if (activePlatforms.length === 0) {
+      alert("Please select at least one platform (WhatsApp or Instagram).");
+      return;
+    }
+
+    // Format tasks for the backend across selected platforms
     const tasks = [];
-    Object.entries(selectedContacts).forEach(([deviceId, phones]) => {
-      phones.forEach(phone => {
-        tasks.push({
-          device_id: parseInt(deviceId),
-          contact_number: phone,
-          message
+    activePlatforms.forEach(platform => {
+      Object.entries(selectedContacts).forEach(([deviceId, phones]) => {
+        phones.forEach(phone => {
+          tasks.push({
+            device_id: parseInt(deviceId),
+            contact_number: phone,
+            message,
+            platform
+          });
         });
       });
     });

@@ -8,7 +8,6 @@ import SourcesTable from "@/components/ui/SourcesTable";
 import DuplicateDetection from "@/components/ui/DuplicateDetection";
 import RawNewsFeed from "@/components/ui/RawNewsFeed";
 import { api } from "@/providers/AuthProvider";
-import { getApiBaseUrl } from "@/lib/api";
 
 export default function HomePage() {
   const [statsData, setStatsData] = useState([]);
@@ -20,7 +19,7 @@ export default function HomePage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const baseUrl = getApiBaseUrl();
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
       const statsRes = await fetch(`${baseUrl}/masters/api/scraper/stats/`, { cache: "no-store" });
       if (statsRes.ok) {

@@ -75,17 +75,20 @@ class WhatsAppDeviceSerializer(serializers.ModelSerializer):
     class Meta:
         model = WhatsAppDevice
         fields = [
-            'id', 'phone_number', 'name', 'twitter_handle', 
+            'id', 'phone_number', 'name', 'twitter_handle', 'api_token',
             'battery_level', 'battery_status', 'temperature', 
             'last_heartbeat', 'contacts', 'twitter_targets', 'created_at'
         ]
+        extra_kwargs = {
+            'api_token': {'read_only': True}
+        }
 
 class WhatsAppTaskSerializer(serializers.ModelSerializer):
     device_number = serializers.CharField(source='device.phone_number', read_only=True)
     
     class Meta:
         model = WhatsAppTask
-        fields = ['id', 'device', 'device_number', 'contact_number', 'message', 'status', 'created_at', 'processed_at']
+        fields = ['id', 'device', 'device_number', 'contact_number', 'platform', 'message', 'status', 'created_at', 'processed_at']
 
 class TwitterTaskSerializer(serializers.ModelSerializer):
     device_name = serializers.CharField(source='device.name', read_only=True)
@@ -106,3 +109,45 @@ class AppReleaseSerializer(serializers.ModelSerializer):
         model = AppRelease
         fields = '__all__'
 
+class YouTubeVideoSerializer(serializers.ModelSerializer):
+    video_url = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import YouTubeVideo
+        model = YouTubeVideo
+        fields = ['id', 'title', 'description', 'video_file', 'video_url', 'is_made_for_kids', 'comments_enabled', 'created_at']
+
+    def get_video_url(self, obj):
+        if obj.video_file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.video_file.url)
+            return obj.video_file.url
+        return None
+
+class YouTubeTaskSerializer(serializers.ModelSerializer):
+    device_name = serializers.CharField(source='device.name', read_only=True)
+    device_number = serializers.CharField(source='device.phone_number', read_only=True)
+    video_url = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import YouTubeTask
+        model = YouTubeTask
+        fields = [
+            'id', 'device', 'device_name', 'device_number', 'video', 'video_file',
+            'video_url', 'title', 'description', 'is_made_for_kids', 'comments_enabled',
+            'status', 'created_at', 'processed_at'
+        ]
+
+    def get_video_url(self, obj):
+        if obj.video_file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.video_file.url)
+            return obj.video_file.url
+        elif obj.video and obj.video.video_file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.video.video_file.url)
+            return obj.video.video_file.url
+        return None

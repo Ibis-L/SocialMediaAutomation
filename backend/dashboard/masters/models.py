@@ -1,7 +1,11 @@
+import secrets
+import random
+from datetime import timedelta
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 
 class State(models.Model):
@@ -209,6 +213,7 @@ class WhatsAppDevice(models.Model):
     phone_number = models.CharField(max_length=20, unique=True, help_text="e.g., +919876543210")
     name = models.CharField(max_length=100, blank=True, null=True, help_text="Optional name for this device (e.g., Sales Device 1)")
     twitter_handle = models.CharField(max_length=100, blank=True, null=True, help_text="Optional Twitter/X handle configured on this device (e.g. @SSLocalNews)")
+    api_token = models.CharField(max_length=64, unique=True, blank=True, null=True, help_text="Secret token for device authentication")
     
     # Device Monitoring Fields
     battery_level = models.IntegerField(null=True, blank=True, help_text="Battery percentage (0-100)")
@@ -222,6 +227,11 @@ class WhatsAppDevice(models.Model):
         verbose_name = "WhatsApp Device"
         verbose_name_plural = "WhatsApp Devices"
         ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        if not self.api_token:
+            self.api_token = secrets.token_hex(32)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         desc = self.name or self.phone_number
@@ -253,8 +263,9 @@ class WhatsAppTask(models.Model):
     )
     
     device = models.ForeignKey(WhatsAppDevice, on_delete=models.CASCADE, related_name='tasks')
-    contact_number = models.CharField(max_length=20, help_text="Target phone number")
+    contact_number = models.CharField(max_length=500, help_text="Target phone number or profile/share URL")
     message = models.TextField()
+    platform = models.CharField(max_length=20, default='whatsapp', help_text="Target platform, e.g. whatsapp, instagram")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     created_at = models.DateTimeField(auto_now_add=True)
     processed_at = models.DateTimeField(null=True, blank=True)
@@ -341,9 +352,51 @@ class AppRelease(models.Model):
         return f"Version {self.version_name} ({self.version_code})"
 
 
-import random
-from datetime import timedelta
-from django.utils import timezone
+class YouTubeVideo(models.Model):
+    title = models.CharField(max_length=255, help_text="Title of the video")
+    description = models.TextField(blank=True, null=True, help_text="Description for YouTube")
+    video_file = models.FileField(upload_to="youtube_library/", help_text="Uploaded MP4 video")
+    is_made_for_kids = models.BooleanField(default=True, help_text="Is this video made for kids? (Default True)")
+    comments_enabled = models.BooleanField(default=True, help_text="Are comments allowed? (Default True)")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "YouTube Video"
+        verbose_name_plural = "YouTube Videos"
+
+    def __str__(self):
+        return self.title
+
+
+class YouTubeTask(models.Model):
+    STATUS_CHOICES = (
+        ('PENDING', 'Pending'),
+        ('DOWNLOADING', 'Downloading'),
+        ('PROCESSING', 'Processing'),
+        ('COMPLETED', 'Completed'),
+        ('FAILED', 'Failed')
+    )
+
+    device = models.ForeignKey(WhatsAppDevice, on_delete=models.CASCADE, related_name='youtube_tasks')
+    video = models.ForeignKey(YouTubeVideo, on_delete=models.SET_NULL, null=True, blank=True, related_name='tasks')
+    video_file = models.FileField(upload_to="youtube_uploads/", help_text="Video file to upload to YouTube", blank=True, null=True)
+    title = models.CharField(max_length=255, help_text="Title for the YouTube video")
+    description = models.TextField(blank=True, null=True, help_text="Description for the YouTube video")
+    is_made_for_kids = models.BooleanField(default=True)
+    comments_enabled = models.BooleanField(default=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "YouTube Task"
+        verbose_name_plural = "YouTube Tasks"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"YouTube '{self.title}' on {self.device} ({self.status})"
+
 
 class PasswordResetOTP(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_otps')
