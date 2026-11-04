@@ -311,10 +311,11 @@ class WhatsAppTaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def unified_queue(self, request):
-        """Returns unified queue containing both WhatsApp and YouTube tasks ordered by created_at desc."""
-        from .models import YouTubeTask
+        """Returns unified queue containing WhatsApp, Instagram, Facebook, Twitter, and YouTube tasks."""
+        from .models import YouTubeTask, TwitterTask
         wa_tasks = WhatsAppTask.objects.select_related('device').all()
         yt_tasks = YouTubeTask.objects.select_related('device', 'video').all()
+        tw_tasks = TwitterTask.objects.select_related('device').all()
 
         unified = []
         for t in wa_tasks:
@@ -341,6 +342,7 @@ class WhatsAppTaskViewSet(viewsets.ModelViewSet):
                 "id": f"yt-{yt.id}",
                 "raw_id": yt.id,
                 "task_type": "YOUTUBE",
+                "platform": "youtube",
                 "status": yt.status,
                 "device_id": yt.device.id if yt.device else None,
                 "device_name": yt.device.name if yt.device else "",
@@ -349,6 +351,23 @@ class WhatsAppTaskViewSet(viewsets.ModelViewSet):
                 "details": details,
                 "created_at": yt.created_at,
                 "processed_at": yt.processed_at
+            })
+
+        for tw in tw_tasks:
+            target_text = tw.target_handle or ("Custom Tweet" if tw.task_type == "TWEET" else "Twitter DM")
+            unified.append({
+                "id": f"tw-{tw.id}",
+                "raw_id": tw.id,
+                "task_type": "TWITTER",
+                "platform": "twitter",
+                "status": tw.status,
+                "device_id": tw.device.id if tw.device else None,
+                "device_name": tw.device.name if tw.device else "",
+                "device_phone": tw.device.phone_number if tw.device else "",
+                "target": target_text,
+                "details": tw.content,
+                "created_at": tw.created_at,
+                "processed_at": tw.processed_at
             })
 
         # Sort descending by created_at

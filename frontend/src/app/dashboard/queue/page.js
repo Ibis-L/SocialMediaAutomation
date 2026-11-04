@@ -11,6 +11,14 @@ function FacebookIcon({ className = "w-3.5 h-3.5" }) {
   );
 }
 
+function TwitterIcon({ className = "w-3.5 h-3.5" }) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+    </svg>
+  );
+}
+
 export default function MessageQueuePage() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -60,7 +68,11 @@ export default function MessageQueuePage() {
 
   const filteredTasks = tasks.filter((t) => {
     if (filterType === "ALL") return true;
-    return (t.task_type || "WHATSAPP").toUpperCase() === filterType;
+    const plat = (t.platform || t.task_type || "WHATSAPP").toUpperCase();
+    if (filterType === "TWITTER") {
+      return plat.includes("TWITTER") || plat === "DM" || plat === "TWEET";
+    }
+    return plat === filterType;
   });
 
   const pendingCount = tasks.filter((t) => t.status === "PENDING").length;
@@ -107,12 +119,12 @@ export default function MessageQueuePage() {
               filterType === "WHATSAPP" ? "bg-emerald-600 text-white" : "text-gray-500 hover:text-emerald-700 hover:bg-emerald-50"
             }`}
           >
-            <MessageSquare className="w-3.5 h-3.5" /> WhatsApp ({tasks.filter(t => (t.task_type || "WHATSAPP") === "WHATSAPP").length})
+            <MessageSquare className="w-3.5 h-3.5" /> WhatsApp ({tasks.filter(t => (t.platform || t.task_type || "WHATSAPP").toUpperCase() === "WHATSAPP").length})
           </button>
           <button
             onClick={() => setFilterType("INSTAGRAM")}
             className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-              filterType === "INSTAGRAM" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
+              filterType === "INSTAGRAM" ? "bg-purple-600 text-white" : "text-gray-500 hover:text-purple-700 hover:bg-purple-50"
             }`}
           >
             <Share2 className="w-3.5 h-3.5" /> Instagram ({tasks.filter(t => (t.platform || t.task_type || "").toUpperCase() === "INSTAGRAM").length})
@@ -126,12 +138,15 @@ export default function MessageQueuePage() {
             <FacebookIcon className="w-3.5 h-3.5" /> Facebook ({tasks.filter(t => (t.platform || t.task_type || "").toUpperCase() === "FACEBOOK").length})
           </button>
           <button
-            onClick={() => setFilterType("FACEBOOK")}
+            onClick={() => setFilterType("TWITTER")}
             className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-              filterType === "FACEBOOK" ? "bg-blue-600 text-white" : "text-gray-500 hover:text-blue-700 hover:bg-blue-50"
+              filterType === "TWITTER" ? "bg-black text-white" : "text-gray-500 hover:text-black hover:bg-gray-100"
             }`}
           >
-            <FacebookIcon className="w-3.5 h-3.5" /> Facebook ({tasks.filter(t => (t.platform || t.task_type || "").toUpperCase() === "FACEBOOK").length})
+            <TwitterIcon className="w-3.5 h-3.5" /> Twitter / X ({tasks.filter(t => {
+              const p = (t.platform || t.task_type || "").toUpperCase();
+              return p.includes("TWITTER") || p === "DM" || p === "TWEET";
+            }).length})
           </button>
           <button
             onClick={() => setFilterType("YOUTUBE")}
@@ -139,7 +154,7 @@ export default function MessageQueuePage() {
               filterType === "YOUTUBE" ? "bg-red-600 text-white" : "text-gray-500 hover:text-red-700 hover:bg-red-50"
             }`}
           >
-            <Film className="w-3.5 h-3.5" /> YouTube ({tasks.filter(t => t.task_type === "YOUTUBE").length})
+            <Film className="w-3.5 h-3.5" /> YouTube ({tasks.filter(t => (t.platform || t.task_type || "").toUpperCase() === "YOUTUBE").length})
           </button>
         </div>
       </div>
@@ -188,16 +203,16 @@ export default function MessageQueuePage() {
                           <Film className="w-3.5 h-3.5" /> YouTube
                         </span>
                       ) : ((task.platform || task.task_type || "").toUpperCase() === "INSTAGRAM") ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-gray-100 text-gray-800 border border-gray-300">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-purple-50 text-purple-700 border border-purple-200">
                           <Share2 className="w-3.5 h-3.5" /> Instagram
                         </span>
                       ) : ((task.platform || task.task_type || "").toUpperCase() === "FACEBOOK") ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-blue-50 text-blue-700 border border-blue-200">
                           <FacebookIcon className="w-3.5 h-3.5" /> Facebook
                         </span>
-                      ) : ((task.platform || task.task_type || "").toUpperCase() === "FACEBOOK") ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-blue-50 text-blue-700 border border-blue-200">
-                          <FacebookIcon className="w-3.5 h-3.5" /> Facebook
+                      ) : (((task.platform || task.task_type || "").toUpperCase().includes("TWITTER")) || task.task_type === "DM" || task.task_type === "TWEET") ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-gray-900 text-white border border-gray-700">
+                          <TwitterIcon className="w-3.5 h-3.5" /> Twitter / X
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">

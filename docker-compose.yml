@@ -61,6 +61,7 @@ services:
       - "3000:3000"
     environment:
       - BACKEND_URL=http://backend:8000
+      - HOST_IP=${HOST_IP:-}
     depends_on:
       - backend
 

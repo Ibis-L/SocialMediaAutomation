@@ -254,6 +254,102 @@ class DeviceContact(models.Model):
     def __str__(self):
         return f"{self.name} ({self.phone_number})" if self.name else self.phone_number
 
+# ─────────────────────────────────────────────────────────────────────────────
+# INSTAGRAM CONTENT TASKS (Posts, Stories, Reels — separate from DM)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class InstagramTask(models.Model):
+    TASK_TYPE_CHOICES = (
+        ('POST', 'Feed Post (image/video/carousel)'),
+        ('STORY', 'Story (image or video)'),
+        ('REEL', 'Reel (video)'),
+    )
+    STATUS_CHOICES = (
+        ('PENDING', 'Pending'),
+        ('PROCESSING', 'Processing'),
+        ('COMPLETED', 'Completed'),
+        ('FAILED', 'Failed'),
+    )
+
+    device = models.ForeignKey(
+        'WhatsAppDevice', on_delete=models.CASCADE, related_name='instagram_tasks'
+    )
+    task_type = models.CharField(max_length=10, choices=TASK_TYPE_CHOICES, default='POST')
+    caption = models.TextField(blank=True, default='', help_text="Caption for Post/Story/Reel")
+    hashtags = models.TextField(blank=True, default='', help_text="Hashtags to append (space-separated, with or without #)")
+    article = models.ForeignKey(
+        'ScrapedArticle', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='instagram_tasks', help_text="Optional linked news article"
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Instagram Task"
+        verbose_name_plural = "Instagram Tasks"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Instagram {self.task_type} via {self.device} ({self.status})"
+
+    def full_caption(self):
+        """Returns caption with hashtags appended."""
+        parts = [self.caption] if self.caption else []
+        if self.hashtags:
+            tags = self.hashtags.strip()
+            # Ensure each tag starts with #
+            normalized = ' '.join(
+                t if t.startswith('#') else f'#{t}'
+                for t in tags.replace(',', ' ').split()
+                if t
+            )
+            if normalized:
+                parts.append(normalized)
+        return '\n\n'.join(parts)
+
+
+class InstagramMedia(models.Model):
+    MEDIA_TYPE_CHOICES = (
+        ('image', 'Image'),
+        ('video', 'Video'),
+    )
+    task = models.ForeignKey(
+        InstagramTask, on_delete=models.CASCADE, related_name='media_files'
+    )
+    file = models.FileField(upload_to='instagram_media/', help_text="Uploaded image or video file")
+    media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES, default='image')
+    order = models.PositiveIntegerField(default=0, help_text="Order in carousel (0 = first)")
+
+    class Meta:
+        verbose_name = "Instagram Media File"
+        verbose_name_plural = "Instagram Media Files"
+        ordering = ['order']
+
+    def __str__(self):
+        return f"{self.media_type} #{self.order} for task {self.task_id}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TWITTER MEDIA FILES (for tweets with attached images)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TwitterMedia(models.Model):
+    task = models.ForeignKey(
+        'TwitterTask', on_delete=models.CASCADE, related_name='media_files'
+    )
+    file = models.FileField(upload_to='twitter_media/', help_text="Image to attach to tweet (max 4)")
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "Twitter Media File"
+        verbose_name_plural = "Twitter Media Files"
+        ordering = ['order']
+
+    def __str__(self):
+        return f"Twitter media #{self.order} for task {self.task_id}"
+
+
 class WhatsAppTask(models.Model):
     STATUS_CHOICES = (
         ('PENDING', 'Pending'),

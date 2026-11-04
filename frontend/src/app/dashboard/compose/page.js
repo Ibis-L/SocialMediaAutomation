@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Smartphone, Send, CheckCircle2, Users, RefreshCw, Download, QrCode, X, ExternalLink } from "lucide-react";
+import { Smartphone, Send, CheckCircle2, Users, RefreshCw, Download, QrCode, X, ExternalLink, MessageSquare, Share2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import Link from "next/link";
 
@@ -57,7 +57,9 @@ export default function ComposePage() {
   const [selectedNewsIds, setSelectedNewsIds] = useState([]);
   const [selectedPlatforms, setSelectedPlatforms] = useState({
     whatsapp: true,
-    instagram: true,
+    instagram: false,
+    facebook: false,
+    twitter: false,
   });
   
   // Which device is currently being viewed in the 3rd column
@@ -193,7 +195,7 @@ export default function ComposePage() {
 
     const activePlatforms = Object.keys(selectedPlatforms).filter(k => selectedPlatforms[k]);
     if (activePlatforms.length === 0) {
-      alert("Please select at least one platform (WhatsApp or Instagram).");
+      alert("Please select at least one platform (WhatsApp, Instagram, Facebook, or Twitter).");
       return;
     }
 
@@ -314,6 +316,60 @@ export default function ComposePage() {
           </div>
         </div>
       )}
+
+      {/* Platform Selector Bar */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-gray-500 mr-2">Target Platforms:</span>
+          <button
+            type="button"
+            onClick={() => setSelectedPlatforms(prev => ({ ...prev, whatsapp: !prev.whatsapp }))}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all border ${
+              selectedPlatforms.whatsapp 
+                ? "bg-emerald-600 text-white border-emerald-700 shadow-sm" 
+                : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+            }`}
+          >
+            <MessageSquare size={14} /> WhatsApp
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedPlatforms(prev => ({ ...prev, instagram: !prev.instagram }))}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all border ${
+              selectedPlatforms.instagram 
+                ? "bg-purple-600 text-white border-purple-700 shadow-sm" 
+                : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+            }`}
+          >
+            <Share2 size={14} /> Instagram
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedPlatforms(prev => ({ ...prev, facebook: !prev.facebook }))}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all border ${
+              selectedPlatforms.facebook 
+                ? "bg-blue-600 text-white border-blue-700 shadow-sm" 
+                : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+            }`}
+          >
+            Facebook
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedPlatforms(prev => ({ ...prev, twitter: !prev.twitter }))}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all border ${
+              selectedPlatforms.twitter 
+                ? "bg-black text-white border-black shadow-sm" 
+                : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+            }`}
+          >
+            Twitter / X
+          </button>
+        </div>
+        <span className="text-xs text-gray-500">
+          Selected channels will receive this news update
+        </span>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start h-[700px]">
         {/* Column 1: Editorial News Queue */}

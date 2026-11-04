@@ -23,7 +23,14 @@ export async function GET(request) {
         // k8s: keep only the path, serve it from the public host (ingress routes /media to Django)
         try {
           const u = new URL(data.apk_file, BACKEND_URL);
-          const proto = (request.headers.get("x-forwarded-proto") || "https").split(",")[0].trim();
+          let proto = (request.headers.get("x-forwarded-proto") || "").split(",")[0].trim();
+          if (!proto) {
+            try {
+              proto = new URL(request.url).protocol.replace(":", "");
+            } catch (e) {
+              proto = "http";
+            }
+          }
           data.apk_file = `${proto}://${host}${u.pathname}`;
         } catch (e) {
           // leave apk_file as returned by the backend
