@@ -4,8 +4,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
 
-from .models import WhatsAppDevice, TwitterTarget, TwitterTask
-from .serializers import TwitterTargetSerializer, TwitterTaskSerializer
+from .models import WhatsAppDevice, TwitterTarget, TwitterTask, TwitterMedia, ScrapedArticle
+from .serializers import TwitterTargetSerializer, TwitterTaskSerializer, TwitterMediaSerializer
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TWITTER / X INTEGRATION VIEWSETS (SEPARATE MODULE TO PREVENT MERGE CONFLICTS)
@@ -92,25 +92,48 @@ class TwitterTaskViewSet(viewsets.ModelViewSet):
     def enqueue_tweet(self, request):
         """
         Enqueues a custom tweet to be posted from the selected device/account.
-        Payload: { "device_id": 1, "content": "Custom tweet text..." }
+        Accepts application/json or multipart/form-data with optional images (up to 4) and hashtags.
         """
         device_id = request.data.get('device_id')
         content = request.data.get('content', '').strip()
+        hashtags = request.data.get('hashtags', '').strip()
+        article_id = request.data.get('article_id')
+
+        if not device_id:
+            return Response({"error": "device_id is required"}, status=400)
         
-        if not device_id or not content:
-            return Response({"error": "device_id and content are required"}, status=400)
+        # Twitter allows tweets with just images and no text, or text with images
+        images = request.FILES.getlist('images') or request.FILES.getlist('files')
+        if not content and not images:
+            return Response({"error": "content or at least one image is required"}, status=400)
             
         try:
             device = WhatsAppDevice.objects.get(id=device_id)
+            article = None
+            if article_id:
+                article = ScrapedArticle.objects.filter(id=article_id).first()
+
             task = TwitterTask.objects.create(
                 device=device,
                 task_type='TWEET',
                 content=content,
+                hashtags=hashtags,
+                article=article,
                 status='PENDING'
             )
+
+            # Attach media files (max 4 per tweet as per Twitter limits)
+            for order, img_file in enumerate(images[:4]):
+                TwitterMedia.objects.create(
+                    task=task,
+                    file=img_file,
+                    order=order
+                )
+
             return Response({
                 "success": True, 
                 "task_id": task.id, 
+                "image_count": min(len(images), 4),
                 "message": f"Tweet queued for {device.name or device.phone_number}"
             })
         except WhatsAppDevice.DoesNotExist:
@@ -127,8 +150,13 @@ class TwitterTaskViewSet(viewsets.ModelViewSet):
             return Response({"hasTask": False, "error": "Missing deviceId query parameter"}, status=400)
 
         device = WhatsAppDevice.objects.filter(phone_number=device_identifier).first()
-        if not device and device_identifier.isdigit():
-            device = WhatsAppDevice.objects.filter(id=device_identifier).first()
+        if not device:
+            clean_id = device_identifier.strip()
+            device = WhatsAppDevice.objects.filter(phone_number=clean_id).first()
+            if not device:
+                device = WhatsAppDevice.objects.filter(phone_number='+' + clean_id).first()
+            if not device and clean_id.isdigit():
+                device = WhatsAppDevice.objects.filter(id=clean_id).first()
 
         if not device:
             return Response({"hasTask": False, "error": "Device not registered"})
@@ -141,13 +169,22 @@ class TwitterTaskViewSet(viewsets.ModelViewSet):
             task.processed_at = timezone.now()
             task.save()
 
+            media_urls = []
+            for m in task.media_files.all().order_by('order'):
+                if m.file:
+                    url = request.build_absolute_uri(m.file.url) if request else m.file.url
+                    media_urls.append(url)
+
             return Response({
                 "hasTask": True,
                 "taskId": task.id,
                 "platform": "TWITTER",
                 "taskType": task.task_type,
                 "targetHandle": task.target_handle or "",
-                "content": task.content
+                "content": task.content,
+                "hashtags": task.hashtags or "",
+                "fullContent": task.full_content(),
+                "mediaUrls": media_urls
             })
 
         return Response({"hasTask": False})

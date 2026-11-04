@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { getApiBaseUrl } from "@/lib/api";
 
 export default function AddSourceModal({ isOpen, onClose }) {
   const router = useRouter();
@@ -24,7 +25,7 @@ export default function AddSourceModal({ isOpen, onClose }) {
     setError(null);
 
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/scraper/sources/`, {
+      const res = await fetch(`${getApiBaseUrl()}/masters/api/scraper/sources/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

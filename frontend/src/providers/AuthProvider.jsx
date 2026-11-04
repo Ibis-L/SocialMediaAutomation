@@ -3,14 +3,16 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import axios from 'axios';
+import { getApiBaseUrl } from '@/lib/api';
 
 // Create a configured axios instance
 export const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  baseURL: typeof window !== 'undefined' ? getApiBaseUrl() : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'),
   withCredentials: true, // Important for sending/receiving HttpOnly cookies
 });
 
 if (typeof window !== 'undefined') {
+  api.defaults.baseURL = getApiBaseUrl();
   const token = localStorage.getItem('access_token');
   if (token) {
     api.defaults.headers.common['Authorization'] = `Bearer ${token}`;

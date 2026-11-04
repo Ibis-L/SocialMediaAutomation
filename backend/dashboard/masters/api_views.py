@@ -312,10 +312,11 @@ class WhatsAppTaskViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def unified_queue(self, request):
         """Returns unified queue containing WhatsApp, Instagram, Facebook, Twitter, and YouTube tasks."""
-        from .models import YouTubeTask, TwitterTask
+        from .models import YouTubeTask, TwitterTask, InstagramTask
         wa_tasks = WhatsAppTask.objects.select_related('device').all()
         yt_tasks = YouTubeTask.objects.select_related('device', 'video').all()
         tw_tasks = TwitterTask.objects.select_related('device').all()
+        ig_tasks = InstagramTask.objects.select_related('device').prefetch_related('media_files').all()
 
         unified = []
         for t in wa_tasks:
@@ -365,9 +366,27 @@ class WhatsAppTaskViewSet(viewsets.ModelViewSet):
                 "device_name": tw.device.name if tw.device else "",
                 "device_phone": tw.device.phone_number if tw.device else "",
                 "target": target_text,
-                "details": tw.content,
+                "details": tw.full_content() if hasattr(tw, 'full_content') else tw.content,
                 "created_at": tw.created_at,
                 "processed_at": tw.processed_at
+            })
+
+        for ig in ig_tasks:
+            media_count = ig.media_files.count()
+            media_info = f" ({media_count} media)" if media_count else ""
+            unified.append({
+                "id": f"ig-{ig.id}",
+                "raw_id": ig.id,
+                "task_type": f"INSTAGRAM_{ig.task_type}",
+                "platform": "instagram",
+                "status": ig.status,
+                "device_id": ig.device.id if ig.device else None,
+                "device_name": ig.device.name if ig.device else "",
+                "device_phone": ig.device.phone_number if ig.device else "",
+                "target": f"Instagram {ig.task_type.capitalize()}{media_info}",
+                "details": ig.full_caption(),
+                "created_at": ig.created_at,
+                "processed_at": ig.processed_at
             })
 
         # Sort descending by created_at

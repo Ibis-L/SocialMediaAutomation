@@ -1,5 +1,8 @@
 from rest_framework import serializers
-from .models import ScrapedArticle, TemplateConfig, ScrapeLog, WhatsAppDevice, DeviceContact, WhatsAppTask, TwitterTarget, TwitterTask
+from .models import (
+    ScrapedArticle, TemplateConfig, ScrapeLog, WhatsAppDevice, DeviceContact, 
+    WhatsAppTask, TwitterTarget, TwitterTask, TwitterMedia, InstagramTask, InstagramMedia
+)
 from django.utils import timezone
 from datetime import timedelta
 
@@ -90,17 +93,65 @@ class WhatsAppTaskSerializer(serializers.ModelSerializer):
         model = WhatsAppTask
         fields = ['id', 'device', 'device_number', 'contact_number', 'platform', 'message', 'status', 'created_at', 'processed_at']
 
+class TwitterMediaSerializer(serializers.ModelSerializer):
+    media_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TwitterMedia
+        fields = ['id', 'file', 'media_url', 'order']
+
+    def get_media_url(self, obj):
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+
 class TwitterTaskSerializer(serializers.ModelSerializer):
     device_name = serializers.CharField(source='device.name', read_only=True)
     device_phone = serializers.CharField(source='device.phone_number', read_only=True)
     device_twitter_handle = serializers.CharField(source='device.twitter_handle', read_only=True)
+    media_files = TwitterMediaSerializer(many=True, read_only=True)
+    article_title = serializers.CharField(source='article.title', read_only=True)
 
     class Meta:
         model = TwitterTask
         fields = [
             'id', 'device', 'device_name', 'device_phone', 'device_twitter_handle',
-            'task_type', 'target_handle', 'content', 'status', 
-            'result_message', 'created_at', 'processed_at'
+            'task_type', 'target_handle', 'content', 'hashtags', 'article', 'article_title',
+            'media_files', 'status', 'result_message', 'created_at', 'processed_at'
+        ]
+
+class InstagramMediaSerializer(serializers.ModelSerializer):
+    media_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InstagramMedia
+        fields = ['id', 'file', 'media_url', 'media_type', 'order']
+
+    def get_media_url(self, obj):
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+
+class InstagramTaskSerializer(serializers.ModelSerializer):
+    device_name = serializers.CharField(source='device.name', read_only=True)
+    device_phone = serializers.CharField(source='device.phone_number', read_only=True)
+    media_files = InstagramMediaSerializer(many=True, read_only=True)
+    article_title = serializers.CharField(source='article.title', read_only=True)
+    full_caption = serializers.CharField(source='full_caption', read_only=True)
+
+    class Meta:
+        model = InstagramTask
+        fields = [
+            'id', 'device', 'device_name', 'device_phone',
+            'task_type', 'caption', 'hashtags', 'full_caption',
+            'article', 'article_title', 'media_files', 'status',
+            'created_at', 'processed_at'
         ]
 
 class AppReleaseSerializer(serializers.ModelSerializer):

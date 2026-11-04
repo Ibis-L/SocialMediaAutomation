@@ -11,6 +11,7 @@ import AIAnalysisPanel from "@/components/ui/AIAnalysisPanel";
 import AIRewriteControls from "@/components/ui/AIRewriteControls";
 import EditorDecisionPanel from "@/components/ui/EditorDecisionPanel";
 import ReviewNotesPanel from "@/components/ui/ReviewNotesPanel";
+import { getApiBaseUrl } from "@/lib/api";
 
 
 
@@ -21,7 +22,7 @@ export default function EditorialApprovalPage() {
   const fileRef = useRef(null);
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/?status=EDITOR_VERIFICATION`, { cache: "no-store" })
+    fetch(`${getApiBaseUrl()}/masters/api/editor/article/?status=EDITOR_VERIFICATION`, { cache: "no-store" })
       .then(res => res.json())
       .then(data => {
         setRawArticles(data);
@@ -70,7 +71,7 @@ export default function EditorialApprovalPage() {
   const handleApprove = async () => {
     if (!activeId || !article || !activeRawArticle) return;
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/${activeId}/`, {
+      const res = await fetch(`${getApiBaseUrl()}/masters/api/editor/article/${activeId}/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -97,7 +98,7 @@ export default function EditorialApprovalPage() {
     if (!activeId || !article) return;
     if (window.confirm(`Reject "${article.headline}"?`)) {
       try {
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/${activeId}/`, {
+        await fetch(`${getApiBaseUrl()}/masters/api/editor/article/${activeId}/`, {
           method: "DELETE"
         });
         const remaining = rawArticles.filter(a => a.id !== activeId);
@@ -112,7 +113,7 @@ export default function EditorialApprovalPage() {
   const handleRerun = async (mode, creativity) => {
     if (!activeId) return;
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/${activeId}/ai_rewrite/`, {
+      const res = await fetch(`${getApiBaseUrl()}/masters/api/editor/article/${activeId}/ai_rewrite/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ style: mode.toLowerCase() })
@@ -148,7 +149,7 @@ export default function EditorialApprovalPage() {
       formData.append("cover_image", file);
       
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/${activeId}/`, {
+        const res = await fetch(`${getApiBaseUrl()}/masters/api/editor/article/${activeId}/`, {
           method: "PATCH",
           body: formData
         });

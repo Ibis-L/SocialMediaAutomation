@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Smartphone, Send, CheckCircle2, Users, RefreshCw, Download, QrCode, X, ExternalLink, MessageSquare, Share2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import Link from "next/link";
+import { getApiBaseUrl } from "@/lib/api";
 
 export default function ComposePage() {
   const [devices, setDevices] = useState([]);
@@ -85,8 +86,9 @@ export default function ComposePage() {
   const fetchApprovedNews = useCallback(async (isManual = false) => {
     if (isManual) setRefreshingNews(true);
     try {
+      const apiBase = getApiBaseUrl();
       const newsRes = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/masters/api/editor/article/?status=APPROVED`,
+        `${apiBase}/masters/api/editor/article/?status=APPROVED`,
         { cache: "no-store" }
       );
       if (newsRes.ok) {
@@ -287,7 +289,7 @@ export default function ComposePage() {
             
             <div className="bg-white p-3 border border-gray-200 rounded-xl shadow-inner mb-4">
               <QRCodeSVG 
-                value={downloadPageUrl || "https://sslocal.in/download"} 
+                value={downloadPageUrl || "https://sslocal.mediatechtemple.com/download"} 
                 size={170} 
               />
             </div>

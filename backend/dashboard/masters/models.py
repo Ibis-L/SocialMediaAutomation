@@ -418,6 +418,11 @@ class TwitterTask(models.Model):
     task_type = models.CharField(max_length=20, choices=TASK_TYPE_CHOICES, default='DM')
     target_handle = models.CharField(max_length=100, blank=True, null=True, help_text="Target Twitter handle for DMs (e.g. @elonmusk)")
     content = models.TextField(help_text="News payload for DM or custom tweet text to post")
+    hashtags = models.TextField(blank=True, default='', help_text="Hashtags to append (space-separated, with or without #)")
+    article = models.ForeignKey(
+        'ScrapedArticle', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='twitter_tasks', help_text="Optional linked news article"
+    )
     status = models.CharField(max_length=25, choices=STATUS_CHOICES, default='PENDING')
     result_message = models.TextField(blank=True, null=True, help_text="Execution details reported by Android companion app")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -432,6 +437,20 @@ class TwitterTask(models.Model):
         if self.task_type == 'TWEET':
             return f"Tweet via {self.device} ({self.status})"
         return f"DM to {self.target_handle} via {self.device} ({self.status})"
+
+    def full_content(self):
+        """Returns tweet content with hashtags appended."""
+        parts = [self.content] if self.content else []
+        if self.hashtags:
+            tags = self.hashtags.strip()
+            normalized = ' '.join(
+                t if t.startswith('#') else f'#{t}'
+                for t in tags.replace(',', ' ').split()
+                if t
+            )
+            if normalized:
+                parts.append(normalized)
+        return '\n\n'.join(parts)
 
 class AppRelease(models.Model):
     version_code = models.IntegerField(help_text="Integer version code (e.g. 2)")

@@ -216,8 +216,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         val etUrl = EditText(this).apply {
-            hint = "Server URL (e.g. http://<server-ip>:8000)"
-            setText(currentUrl)
+            hint = "Server URL (e.g. https://sslocal.mediatechtemple.com)"
+            setText(currentUrl.ifEmpty { "https://sslocal.mediatechtemple.com" })
         }
 
         val etPhone = EditText(this).apply {
@@ -297,8 +297,10 @@ class MainActivity : AppCompatActivity() {
         // 2. Twitter Task Dispatch
         if (platform == "TWITTER" || taskType.startsWith("TWITTER")) {
             val targetHandle = intent?.getStringExtra("targetHandle") ?: ""
+            val mediaUrisStrings = intent?.getStringArrayListExtra("mediaUris") ?: arrayListOf()
+            val mediaUris = mediaUrisStrings.map { Uri.parse(it) }
 
-            if (!message.isNullOrEmpty()) {
+            if (!message.isNullOrEmpty() || mediaUris.isNotEmpty()) {
                 wakeUpAndDismissLockScreen()
                 AutomationState.currentTaskId = taskId
                 AutomationState.platform = "TWITTER"
@@ -306,18 +308,19 @@ class MainActivity : AppCompatActivity() {
                 AutomationState.isAutomationActive = true
 
                 if (taskType == "TWEET" || taskType == "TWITTER_TWEET") {
-                    tvStatus?.text = "Executing Twitter Task #$taskId\nAction: Posting Custom Tweet"
+                    val info = if (mediaUris.isNotEmpty()) "Posting Tweet with ${mediaUris.size} photo(s)" else "Posting Custom Tweet"
+                    tvStatus?.text = "Executing Twitter Task #$taskId\nAction: $info"
                     AutomationState.taskType = "TWITTER_TWEET"
                     AutomationState.currentTaskType = "TWITTER_TWEET"
                     AutomationState.twitterPhase = "TWEET_COMPOSE"
-                    dispatchTwitterTweetIntent(message)
+                    dispatchTwitterTweetIntent(message ?: "", mediaUris)
                 } else {
                     tvStatus?.text = "Executing Twitter Task #$taskId\nRecipient: $targetHandle (DM / Follow Fallback)"
                     AutomationState.taskType = "TWITTER_DM"
                     AutomationState.currentTaskType = "TWITTER_DM"
                     AutomationState.targetHandle = targetHandle
                     AutomationState.twitterPhase = "PROFILE_CHECK"
-                    dispatchTwitterDmIntent(targetHandle, message)
+                    dispatchTwitterDmIntent(targetHandle, message ?: "")
                 }
                 return
             } else {
@@ -326,25 +329,49 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 4. Instagram Task Dispatch
-        if (platform.equals("INSTAGRAM", ignoreCase = true) || taskType.equals("INSTAGRAM", ignoreCase = true)) {
+        // 4. Instagram Task Dispatch (DMs, Posts, Stories, Reels)
+        if (platform.equals("INSTAGRAM", ignoreCase = true) || taskType.startsWith("INSTAGRAM")) {
             val username = intent?.getStringExtra("phoneNumber") ?: intent?.getStringExtra("targetHandle") ?: ""
-            if (!username.isNullOrEmpty() && !message.isNullOrEmpty()) {
-                wakeUpAndDismissLockScreen()
-                tvStatus?.text = "Executing Instagram Task #$taskId\nRecipient: $username"
-                AutomationState.currentTaskId = taskId
-                AutomationState.platform = "INSTAGRAM"
-                AutomationState.currentTaskType = "INSTAGRAM"
-                AutomationState.taskType = "INSTAGRAM"
-                AutomationState.targetHandle = username
-                AutomationState.taskContent = message
-                AutomationState.currentMessage = message
-                dispatchInstagramIntent(username, message)
-                return
-            } else {
-                updateWaitingStatus()
-                return
+            val mediaUrisStrings = intent?.getStringArrayListExtra("mediaUris") ?: arrayListOf()
+            val mediaUris = mediaUrisStrings.map { Uri.parse(it) }
+
+            wakeUpAndDismissLockScreen()
+            AutomationState.currentTaskId = taskId
+            AutomationState.platform = "INSTAGRAM"
+            AutomationState.currentTaskType = taskType
+            AutomationState.taskType = taskType
+            AutomationState.taskContent = message
+            AutomationState.currentMessage = message
+
+            when {
+                taskType == "INSTAGRAM_POST" -> {
+                    tvStatus?.text = "Executing Instagram Post #$taskId\nMedia: ${mediaUris.size} item(s)"
+                    dispatchInstagramPostIntent(mediaUris, message ?: "")
+                    return
+                }
+                taskType == "INSTAGRAM_STORY" -> {
+                    tvStatus?.text = "Executing Instagram Story #$taskId"
+                    val storyUri = mediaUris.firstOrNull() ?: return
+                    dispatchInstagramStoryIntent(storyUri, message ?: "")
+                    return
+                }
+                taskType == "INSTAGRAM_REEL" -> {
+                    tvStatus?.text = "Executing Instagram Reel #$taskId"
+                    val reelUri = mediaUris.firstOrNull() ?: return
+                    dispatchInstagramReelIntent(reelUri, message ?: "")
+                    return
+                }
+                else -> {
+                    if (!username.isNullOrEmpty() && !message.isNullOrEmpty()) {
+                        tvStatus?.text = "Executing Instagram DM #$taskId\nRecipient: $username"
+                        AutomationState.targetHandle = username
+                        dispatchInstagramIntent(username, message)
+                        return
+                    }
+                }
             }
+            updateWaitingStatus()
+            return
         }
 
         // 5. Facebook Task Dispatch
@@ -563,13 +590,38 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun dispatchTwitterTweetIntent(message: String) {
+    private fun dispatchTwitterTweetIntent(message: String, mediaUris: List<Uri> = emptyList()) {
         try {
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                putExtra(Intent.EXTRA_TEXT, message)
-                type = "text/plain"
-                setPackage("com.twitter.android")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val intent = if (mediaUris.isEmpty()) {
+                Intent(Intent.ACTION_SEND).apply {
+                    putExtra(Intent.EXTRA_TEXT, message)
+                    type = "text/plain"
+                    setPackage("com.twitter.android")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+            } else if (mediaUris.size == 1) {
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "image/*"
+                    setPackage("com.twitter.android")
+                    putExtra(Intent.EXTRA_STREAM, mediaUris[0])
+                    putExtra(Intent.EXTRA_TEXT, message)
+                    clipData = ClipData.newUri(contentResolver, "media", mediaUris[0])
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            } else {
+                Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "image/*"
+                    setPackage("com.twitter.android")
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(mediaUris))
+                    putExtra(Intent.EXTRA_TEXT, message)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+
+            for (u in mediaUris) {
+                try {
+                    grantUriPermission("com.twitter.android", u, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (e: Exception) {}
             }
 
             AutomationState.isAutomationActive = true
@@ -600,6 +652,125 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Twitter (X) app not installed", Toast.LENGTH_SHORT).show()
                 ex.printStackTrace()
             }
+        }
+    }
+
+    private fun dispatchInstagramPostIntent(mediaUris: List<Uri>, caption: String) {
+        try {
+            val firstUri = mediaUris.firstOrNull() ?: return
+            val isVideo = firstUri.toString().endsWith(".mp4", ignoreCase = true)
+            val isSingle = mediaUris.size <= 1
+
+            val intent = if (isSingle) {
+                Intent(Intent.ACTION_SEND).apply {
+                    type = if (isVideo) "video/*" else "image/*"
+                    setPackage("com.instagram.android")
+                    putExtra(Intent.EXTRA_STREAM, firstUri)
+                    putExtra(Intent.EXTRA_TEXT, caption)
+                    clipData = ClipData.newUri(contentResolver, "media", firstUri)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            } else {
+                Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "image/*"
+                    setPackage("com.instagram.android")
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(mediaUris))
+                    putExtra(Intent.EXTRA_TEXT, caption)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+
+            for (u in mediaUris) {
+                try {
+                    grantUriPermission("com.instagram.android", u, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (e: Exception) {}
+            }
+
+            AutomationState.isAutomationActive = true
+            AutomationState.platform = "INSTAGRAM"
+            AutomationState.currentTaskType = "INSTAGRAM_POST"
+            AutomationState.taskType = "INSTAGRAM_POST"
+            AutomationState.taskContent = caption
+            AutomationState.currentMessage = caption
+
+            startActivity(intent)
+            finish()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Instagram error: ${e.message}", Toast.LENGTH_LONG).show()
+            e.printStackTrace()
+            AutomationState.isAutomationActive = false
+        }
+    }
+
+    private fun dispatchInstagramStoryIntent(mediaUri: Uri, caption: String) {
+        try {
+            val isVideo = mediaUri.toString().endsWith(".mp4", ignoreCase = true)
+            val intent = Intent("com.instagram.share.ADD_TO_STORY").apply {
+                type = if (isVideo) "video/*" else "image/*"
+                setPackage("com.instagram.android")
+                putExtra("interactive_asset_uri", mediaUri)
+                putExtra(Intent.EXTRA_STREAM, mediaUri)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            try {
+                grantUriPermission("com.instagram.android", mediaUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {}
+
+            AutomationState.isAutomationActive = true
+            AutomationState.platform = "INSTAGRAM"
+            AutomationState.currentTaskType = "INSTAGRAM_STORY"
+            AutomationState.taskType = "INSTAGRAM_STORY"
+            AutomationState.taskContent = caption
+            AutomationState.currentMessage = caption
+
+            startActivity(intent)
+            finish()
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "image/*"
+                    setPackage("com.instagram.android")
+                    putExtra(Intent.EXTRA_STREAM, mediaUri)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                AutomationState.isAutomationActive = true
+                AutomationState.platform = "INSTAGRAM"
+                AutomationState.currentTaskType = "INSTAGRAM_STORY"
+                AutomationState.taskType = "INSTAGRAM_STORY"
+                AutomationState.taskContent = caption
+                startActivity(intent)
+                finish()
+            } catch (ex: Exception) {
+                Toast.makeText(this, "Instagram not installed", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun dispatchInstagramReelIntent(mediaUri: Uri, caption: String) {
+        try {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "video/*"
+                setPackage("com.instagram.android")
+                putExtra(Intent.EXTRA_STREAM, mediaUri)
+                putExtra(Intent.EXTRA_TEXT, caption)
+                clipData = ClipData.newUri(contentResolver, "media", mediaUri)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            try {
+                grantUriPermission("com.instagram.android", mediaUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {}
+
+            AutomationState.isAutomationActive = true
+            AutomationState.platform = "INSTAGRAM"
+            AutomationState.currentTaskType = "INSTAGRAM_REEL"
+            AutomationState.taskType = "INSTAGRAM_REEL"
+            AutomationState.taskContent = caption
+            AutomationState.currentMessage = caption
+
+            startActivity(intent)
+            finish()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Instagram not installed", Toast.LENGTH_SHORT).show()
         }
     }
 

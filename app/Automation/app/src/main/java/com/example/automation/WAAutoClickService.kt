@@ -89,12 +89,12 @@ class WAAutoClickService : AccessibilityService() {
         // 4. INSTAGRAM AUTOMATION FLOW (Delegated to InstagramAutomationHandler)
         // ─────────────────────────────────────────────────────────────
         if (pkg == "com.instagram.android" &&
-            (AutomationState.platform == "INSTAGRAM" || AutomationState.currentTaskType == "INSTAGRAM")
+            (AutomationState.platform == "INSTAGRAM" || AutomationState.currentTaskType.startsWith("INSTAGRAM"))
         ) {
             if (!isProcessing) {
                 isProcessing = true
                 handler.removeCallbacks(safetyResetRunnable)
-                handler.postDelayed(safetyResetRunnable, 25000)
+                handler.postDelayed(safetyResetRunnable, 45000)
 
                 InstagramAutomationHandler.startInstagramFlow(
                     service = this,

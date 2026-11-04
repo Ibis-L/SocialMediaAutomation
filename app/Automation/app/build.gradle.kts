@@ -26,12 +26,12 @@ android {
 
     buildTypes {
         debug {
-            // Automatically used when pressing "Run" in Android Studio
-            buildConfigField("String", "API_BASE_URL", "\"http://192.168.137.1:8000\"")
+            // Default production server URL (can be overridden via QR code or manual settings in app)
+            buildConfigField("String", "API_BASE_URL", "\"https://sslocal.mediatechtemple.com\"")
         }
         release {
-            // Automatically used when building the final Release APK
-            buildConfigField("String", "API_BASE_URL", "\"https://sslocal.in\"")
+            // Production deployment API endpoint
+            buildConfigField("String", "API_BASE_URL", "\"https://sslocal.mediatechtemple.com\"")
 
             isMinifyEnabled = false
             proguardFiles(

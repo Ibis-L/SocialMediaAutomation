@@ -5,15 +5,21 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.MediaStore
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -187,18 +193,81 @@ class PollingService : Service() {
                             val taskType = twJson.optString("taskType", "DM") // "DM" or "TWEET"
                             val targetHandle = twJson.optString("targetHandle", "")
                             val content = twJson.optString("content", "")
+                            val fullContent = twJson.optString("fullContent", content)
+                            val mediaUrlsArr = twJson.optJSONArray("mediaUrls")
 
-                            if (content.isNotEmpty()) {
+                            val mediaUrls = mutableListOf<String>()
+                            if (mediaUrlsArr != null) {
+                                for (i in 0 until mediaUrlsArr.length()) {
+                                    val u = mediaUrlsArr.optString(i)
+                                    if (!u.isNullOrEmpty()) mediaUrls.add(u)
+                                }
+                            }
+
+                            if (fullContent.isNotEmpty() || mediaUrls.isNotEmpty()) {
+                                hasHandledTask = true
                                 AutomationState.serverBaseUrl = serverBaseUrl
                                 AutomationState.platform = "TWITTER"
                                 AutomationState.taskType = if (taskType == "TWEET") "TWITTER_TWEET" else "TWITTER_DM"
                                 AutomationState.targetHandle = targetHandle
-                                AutomationState.taskContent = content
-                                launchTwitterDispatch(taskId, taskType, targetHandle, content)
+                                AutomationState.taskContent = fullContent
+
+                                if (mediaUrls.isNotEmpty()) {
+                                    downloadAndLaunchTwitter(taskId, taskType, targetHandle, fullContent, mediaUrls, serverBaseUrl)
+                                } else {
+                                    launchTwitterDispatch(taskId, taskType, targetHandle, fullContent)
+                                }
                             }
                         }
                     }
                     twConn.disconnect()
+                }
+
+                // --- If neither WhatsApp nor Twitter task, check for Instagram Content Tasks (Post, Story, Reel) ---
+                if (!hasHandledTask) {
+                    val igUrl = URL("$serverBaseUrl/masters/api/instagram/tasks/poll/?deviceId=$encodedPhone")
+                    val igConn = igUrl.openConnection() as HttpURLConnection
+                    igConn.requestMethod = "GET"
+                    igConn.connectTimeout = 5000
+                    igConn.readTimeout = 5000
+                    if (!deviceToken.isNullOrEmpty()) {
+                        igConn.setRequestProperty("X-Device-Token", deviceToken)
+                    }
+
+                    if (igConn.responseCode == HttpURLConnection.HTTP_OK) {
+                        val igReader = BufferedReader(InputStreamReader(igConn.inputStream))
+                        val igResponse = igReader.readText()
+                        igReader.close()
+
+                        val igJson = JSONObject(igResponse)
+                        val hasIgTask = igJson.optBoolean("hasTask", false)
+
+                        if (hasIgTask) {
+                            val taskId = igJson.optString("taskId")
+                            val subType = igJson.optString("subType", "POST")
+                            val fullCaption = igJson.optString("fullCaption", "")
+                            val mediaFilesArr = igJson.optJSONArray("mediaFiles")
+
+                            val mediaUrls = mutableListOf<String>()
+                            if (mediaFilesArr != null) {
+                                for (i in 0 until mediaFilesArr.length()) {
+                                    val obj = mediaFilesArr.optJSONObject(i)
+                                    val u = obj?.optString("url") ?: ""
+                                    if (u.isNotEmpty()) mediaUrls.add(u)
+                                }
+                            }
+
+                            if (mediaUrls.isNotEmpty()) {
+                                hasHandledTask = true
+                                AutomationState.serverBaseUrl = serverBaseUrl
+                                AutomationState.platform = "INSTAGRAM"
+                                AutomationState.taskType = "INSTAGRAM_$subType"
+                                AutomationState.taskContent = fullCaption
+                                downloadAndLaunchInstagramContent(taskId, subType, fullCaption, mediaUrls, serverBaseUrl)
+                            }
+                        }
+                    }
+                    igConn.disconnect()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -497,33 +566,155 @@ class PollingService : Service() {
         }
     }
 
-    private fun launchTwitterDispatch(taskId: String, taskType: String, targetHandle: String, content: String) {
+    private fun launchTwitterDispatch(taskId: String, taskType: String, targetHandle: String, content: String, mediaUris: ArrayList<String>? = null) {
         val intent = Intent(this, MainActivity::class.java).apply {
             putExtra("platform", "TWITTER")
             putExtra("taskId", taskId)
             putExtra("taskType", taskType)
             putExtra("targetHandle", targetHandle)
             putExtra("message", content)
+            if (mediaUris != null && mediaUris.isNotEmpty()) {
+                putStringArrayListExtra("mediaUris", mediaUris)
+            }
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
+        launchActivityWithBypass(intent)
+    }
 
-        try {
-            val options = android.app.ActivityOptions.makeBasic()
-            if (Build.VERSION.SDK_INT >= 34) {
-                options.pendingIntentBackgroundActivityStartMode = android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+    private fun downloadMediaFile(fileUrl: String, serverBaseUrl: String, deviceToken: String?, fileName: String): File? {
+        val fullUrl = if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
+            if ((fileUrl.contains("://localhost") || fileUrl.contains("://127.0.0.1")) &&
+                !serverBaseUrl.contains("localhost") && !serverBaseUrl.contains("127.0.0.1")) {
+                val path = try { java.net.URI(fileUrl).rawPath } catch (e: Exception) { fileUrl.substringAfter(":8000") }
+                "$serverBaseUrl$path"
+            } else {
+                fileUrl
             }
-
-            val pendingIntent = PendingIntent.getActivity(
-                this,
-                0,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            pendingIntent.send(this, 0, intent, null, null, null, options.toBundle())
+        } else {
+            "$serverBaseUrl$fileUrl"
+        }
+        val targetFile = File(cacheDir, fileName)
+        return try {
+            if (targetFile.exists()) targetFile.delete()
+            val url = URL(fullUrl)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15000
+                readTimeout = 60000
+                if (!deviceToken.isNullOrEmpty()) {
+                    setRequestProperty("X-Device-Token", deviceToken)
+                }
+            }
+            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                conn.inputStream.use { input ->
+                    FileOutputStream(targetFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                conn.disconnect()
+                targetFile
+            } else {
+                conn.disconnect()
+                null
+            }
         } catch (e: Exception) {
             e.printStackTrace()
-            startActivity(intent)
+            null
+        }
+    }
+
+    private fun getFileUri(file: File): Uri {
+        return try {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                put(MediaStore.MediaColumns.MIME_TYPE, if (file.name.endsWith(".mp4", ignoreCase = true)) "video/mp4" else "image/jpeg")
+            }
+            val collection = if (file.name.endsWith(".mp4", ignoreCase = true)) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            } else {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            }
+            val uri = contentResolver.insert(collection, values)
+            if (uri != null) {
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    FileInputStream(file).use { inp ->
+                        inp.copyTo(out)
+                    }
+                }
+                uri
+            } else {
+                androidx.core.content.FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            }
+        } catch (e: Exception) {
+            androidx.core.content.FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+        }
+    }
+
+    private fun downloadAndLaunchTwitter(
+        taskId: String,
+        taskType: String,
+        targetHandle: String,
+        content: String,
+        mediaUrls: List<String>,
+        serverBaseUrl: String
+    ) {
+        thread {
+            val prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+            val deviceToken = prefs.getString("device_token", AutomationState.deviceToken)
+            val uris = ArrayList<String>()
+
+            for ((idx, mUrl) in mediaUrls.withIndex()) {
+                val ext = if (mUrl.contains(".png", ignoreCase = true)) "png" else "jpg"
+                val file = downloadMediaFile(mUrl, serverBaseUrl, deviceToken, "tw_${taskId}_${idx}.$ext")
+                if (file != null) {
+                    val uri = getFileUri(file)
+                    uris.add(uri.toString())
+                }
+            }
+
+            val intent = Intent(this, MainActivity::class.java).apply {
+                putExtra("platform", "TWITTER")
+                putExtra("taskId", taskId)
+                putExtra("taskType", taskType)
+                putExtra("targetHandle", targetHandle)
+                putExtra("message", content)
+                putStringArrayListExtra("mediaUris", uris)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            launchActivityWithBypass(intent)
+        }
+    }
+
+    private fun downloadAndLaunchInstagramContent(
+        taskId: String,
+        subType: String,
+        fullCaption: String,
+        mediaUrls: List<String>,
+        serverBaseUrl: String
+    ) {
+        thread {
+            val prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+            val deviceToken = prefs.getString("device_token", AutomationState.deviceToken)
+            val uris = ArrayList<String>()
+
+            for ((idx, mUrl) in mediaUrls.withIndex()) {
+                val isVid = mUrl.contains(".mp4", ignoreCase = true) || mUrl.contains(".mov", ignoreCase = true)
+                val ext = if (isVid) "mp4" else if (mUrl.contains(".png", ignoreCase = true)) "png" else "jpg"
+                val file = downloadMediaFile(mUrl, serverBaseUrl, deviceToken, "ig_${taskId}_${idx}.$ext")
+                if (file != null) {
+                    val uri = getFileUri(file)
+                    uris.add(uri.toString())
+                }
+            }
+
+            val intent = Intent(this, MainActivity::class.java).apply {
+                putExtra("platform", "INSTAGRAM")
+                putExtra("taskId", taskId)
+                putExtra("taskType", "INSTAGRAM_$subType")
+                putExtra("message", fullCaption)
+                putStringArrayListExtra("mediaUris", uris)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            launchActivityWithBypass(intent)
         }
     }
 

@@ -232,7 +232,7 @@ export default function ManageDevicesPage() {
         <div className="flex flex-col items-center bg-white p-4 rounded-xl shadow-lg text-gray-900 shrink-0 border border-gray-100">
           <div className="bg-white p-1 rounded">
             <QRCodeSVG 
-              value={downloadPageUrl || "https://sslocal.in/download"} 
+              value={downloadPageUrl || "https://sslocal.mediatechtemple.com/download"} 
               size={135} 
             />
           </div>

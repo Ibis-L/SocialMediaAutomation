@@ -55,7 +55,7 @@ export default function DownloadAppPage() {
                 Download the official WhatsApp Auto-Dispatcher APK for Android.
               </p>
               <a
-                href={`${process.env.NEXT_PUBLIC_API_URL || ""}/media/releases/app-debug.apk`}
+                href="/media/releases/app-debug.apk"
                 download="automation-app.apk"
                 className="w-full bg-brand-blue hover:bg-blue-700 text-white font-semibold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
               >

@@ -21,9 +21,15 @@ import {
   ShieldCheck,
   AlertCircle,
   Layers,
-  FileText
+  FileText,
+  Image as ImageIcon,
+  Hash,
+  UploadCloud,
+  Newspaper,
+  Tag
 } from "lucide-react";
 import Link from "next/link";
+import { getApiBaseUrl } from "@/lib/api";
 
 export default function TwitterDashboardPage() {
   // Navigation tabs within Twitter Panel
@@ -48,8 +54,25 @@ export default function TwitterDashboardPage() {
   // Custom Tweet Composer state
   const [tweetDevice, setTweetDevice] = useState(null);
   const [tweetText, setTweetText] = useState("");
+  const [tweetImages, setTweetImages] = useState([]);
+  const [tweetImagePreviews, setTweetImagePreviews] = useState([]);
+  const [tweetHashtags, setTweetHashtags] = useState("");
+  const [tweetArticleId, setTweetArticleId] = useState("");
   const [isPostingTweet, setIsPostingTweet] = useState(false);
   const [tweetSuccessMessage, setTweetSuccessMessage] = useState("");
+
+  // Clean up and update image object URLs for preview
+  useEffect(() => {
+    if (tweetImages.length === 0) {
+      setTweetImagePreviews([]);
+      return;
+    }
+    const urls = tweetImages.map((file) => URL.createObjectURL(file));
+    setTweetImagePreviews(urls);
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [tweetImages]);
 
   // Target Handles Management state
   const [newHandle, setNewHandle] = useState("");
@@ -67,8 +90,9 @@ export default function TwitterDashboardPage() {
   const fetchApprovedNews = useCallback(async (isManual = false) => {
     if (isManual) setRefreshingNews(true);
     try {
+      const apiBase = getApiBaseUrl();
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/masters/api/editor/article/?status=APPROVED`,
+        `${apiBase}/masters/api/editor/article/?status=APPROVED`,
         { cache: "no-store" }
       );
       if (res.ok) {
@@ -241,14 +265,48 @@ export default function TwitterDashboardPage() {
     }
   };
 
+  // Handle Tweet Image Uploads (Up to 4 images max for Twitter)
+  const handleTweetImageSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setTweetImages((prev) => {
+      const combined = [...prev, ...files];
+      if (combined.length > 4) {
+        alert("Twitter supports a maximum of 4 photos per Tweet. The first 4 images have been kept.");
+        return combined.slice(0, 4);
+      }
+      return combined;
+    });
+    e.target.value = "";
+  };
+
+  const removeTweetImage = (indexToRemove) => {
+    setTweetImages((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  const handleToggleHashtag = (tag) => {
+    setTweetHashtags((prev) => {
+      const existing = prev.split(/\s+/).filter(Boolean);
+      if (existing.includes(tag)) {
+        return existing.filter((t) => t !== tag).join(" ");
+      } else {
+        return [...existing, tag].join(" ");
+      }
+    });
+  };
+
   // Post Custom Tweet
   const handlePostTweet = async () => {
-    if (!tweetText.trim()) {
-      alert("Please write your Tweet before publishing.");
+    if (!tweetText.trim() && tweetImages.length === 0) {
+      alert("Please write your Tweet or attach at least one photo before publishing.");
       return;
     }
     if (!tweetDevice) {
       alert("Please select a device/account to publish this Tweet from.");
+      return;
+    }
+    if (isOverLimit) {
+      alert("Tweet exceeds the 280 character limit.");
       return;
     }
 
@@ -256,18 +314,31 @@ export default function TwitterDashboardPage() {
     setTweetSuccessMessage("");
 
     try {
+      const formData = new FormData();
+      formData.append("device_id", tweetDevice);
+      formData.append("content", tweetText.trim());
+      if (tweetHashtags.trim()) {
+        formData.append("hashtags", tweetHashtags.trim());
+      }
+      if (tweetArticleId) {
+        formData.append("article_id", tweetArticleId);
+      }
+      tweetImages.slice(0, 4).forEach((file) => {
+        formData.append("images", file);
+      });
+
       const res = await fetch("/api/twitter/compose-tweet", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          device_id: tweetDevice,
-          content: tweetText.trim(),
-        }),
+        body: formData,
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setTweetSuccessMessage("Tweet successfully queued for selected device! Android companion app will open Twitter and publish it.");
+        const mediaNote = data.image_count ? ` with ${data.image_count} photo(s)` : "";
+        setTweetSuccessMessage(`Tweet successfully queued${mediaNote} for selected device! Android companion app will open Twitter and publish it.`);
         setTweetText("");
+        setTweetHashtags("");
+        setTweetArticleId("");
+        setTweetImages([]);
         fetchTasks();
         setTimeout(() => setTweetSuccessMessage(""), 5000);
       } else {
@@ -358,7 +429,8 @@ export default function TwitterDashboardPage() {
 
   // Character counter calculation
   const charLimit = 280;
-  const remainingChars = charLimit - tweetText.length;
+  const totalTweetLength = tweetText.length + (tweetHashtags.trim() ? tweetHashtags.trim().length + 1 : 0);
+  const remainingChars = charLimit - totalTweetLength;
   const isOverLimit = remainingChars < 0;
 
   return (
@@ -706,7 +778,7 @@ export default function TwitterDashboardPage() {
       )}
 
       {/* ───────────────────────────────────────────────────────────── */}
-      {/* TAB 2: CUSTOM TWEET COMPOSER (Requirement 3)                  */}
+      {/* TAB 2: CUSTOM TWEET COMPOSER                                  */}
       {/* ───────────────────────────────────────────────────────────── */}
       {activeTab === "tweet" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -714,9 +786,14 @@ export default function TwitterDashboardPage() {
           <div className="lg:col-span-7 flex flex-col gap-6 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <div>
-                <h2 className="text-lg font-bold text-gray-900">Compose Custom Tweet</h2>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <svg className="w-4 h-4 fill-current text-sky-500" viewBox="0 0 24 24">
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                  </svg>
+                  Compose Custom Tweet
+                </h2>
                 <p className="text-xs text-gray-500">
-                  Write any custom post and assign it to a connected phone to publish automatically.
+                  Write any custom post, attach up to 4 photos, add manual hashtags, and assign to a companion phone.
                 </p>
               </div>
               <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">
@@ -771,7 +848,47 @@ export default function TwitterDashboardPage() {
               </div>
             </div>
 
-            {/* 2. Tweet Text Area */}
+            {/* 2. Optional Editorial News Link Dropdown */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <FileText size={14} className="text-gray-500" />
+                  Link Approved News Article (Optional)
+                </label>
+                {tweetArticleId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const art = approvedNews.find((n) => n.id === parseInt(tweetArticleId));
+                      if (art) {
+                        setTweetText((prev) =>
+                          prev
+                            ? `${prev}\n\n🚨 ${art.headline}\n${art.url || ""}`.trim()
+                            : `🚨 ${art.headline}\n\n${art.url || ""}`.trim()
+                        );
+                      }
+                    }}
+                    className="text-[11px] text-blue-600 hover:underline flex items-center gap-1 font-semibold"
+                  >
+                    <Sparkles size={12} /> Insert Headline into Tweet
+                  </button>
+                )}
+              </div>
+              <select
+                value={tweetArticleId}
+                onChange={(e) => setTweetArticleId(e.target.value)}
+                className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
+              >
+                <option value="">Independent Tweet (No article link)</option>
+                {approvedNews.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.headline}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 3. Tweet Text Area */}
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
@@ -786,10 +903,10 @@ export default function TwitterDashboardPage() {
                 </span>
               </div>
               <textarea
-                rows={6}
+                rows={5}
                 value={tweetText}
                 onChange={(e) => setTweetText(e.target.value)}
-                placeholder="What is happening?! Type breaking news, commentary, announcements, or hashtags..."
+                placeholder="What is happening?! Type breaking news, commentary, announcements, or thoughts..."
                 className={`w-full p-4 rounded-xl border text-sm leading-relaxed focus:outline-none transition-all ${
                   isOverLimit
                     ? "border-red-400 focus:border-red-500 bg-red-50/20"
@@ -798,48 +915,140 @@ export default function TwitterDashboardPage() {
               />
             </div>
 
-            {/* Quick Hashtags & Breaking News Snippet Insert */}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <span className="text-[11px] font-semibold text-gray-400">Quick insert:</span>
-              {["#BreakingNews", "#Technology", "#India", "#SSLocal", "#Update"].map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => setTweetText((prev) => `${prev} ${tag}`.trim())}
-                  className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-[11px] font-medium transition"
+            {/* 4. Photo Attachments Upload Dropzone (Max 4 images for Twitter) */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <ImageIcon size={14} className="text-blue-600" />
+                  Attach Photos to Tweet ({tweetImages.length}/4)
+                </label>
+                <span className="text-[11px] text-gray-400">PNG, JPG, WebP, GIF (Max 4 photos)</span>
+              </div>
+
+              <div className="border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-xl p-4 text-center transition-colors bg-gray-50/50">
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={handleTweetImageSelect}
+                  disabled={tweetImages.length >= 4}
+                  id="tweet-photo-input"
+                  className="hidden"
+                />
+                <label
+                  htmlFor="tweet-photo-input"
+                  className={`flex flex-col items-center gap-1.5 ${
+                    tweetImages.length >= 4 ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+                  }`}
                 >
-                  {tag}
-                </button>
-              ))}
-              {approvedNews.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const top = approvedNews[0];
-                    setTweetText(`🚨 BREAKING: ${top.headline}\n\n${top.url || ""}`);
-                  }}
-                  className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-md text-[11px] font-medium transition flex items-center gap-1"
-                >
-                  <Sparkles size={12} /> Latest Headline
-                </button>
+                  <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                    <UploadCloud size={18} />
+                  </div>
+                  <span className="text-xs font-bold text-gray-800">
+                    {tweetImages.length >= 4
+                      ? "Maximum 4 photos reached"
+                      : "Click to upload photos from your device"}
+                  </span>
+                  <span className="text-[11px] text-gray-400">
+                    Selected photos are transferred directly to the phone companion app
+                  </span>
+                </label>
+              </div>
+
+              {/* Uploaded Photos Thumbnails */}
+              {tweetImages.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                  {tweetImages.map((file, idx) => (
+                    <div
+                      key={idx}
+                      className="relative group rounded-xl overflow-hidden border border-gray-200 bg-gray-100 p-1.5 flex flex-col items-center shadow-sm"
+                    >
+                      {tweetImagePreviews[idx] ? (
+                        <img
+                          src={tweetImagePreviews[idx]}
+                          alt={file.name}
+                          className="w-full h-20 object-cover rounded-lg"
+                        />
+                      ) : (
+                        <div className="w-full h-20 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400">
+                          <ImageIcon size={20} />
+                        </div>
+                      )}
+                      <div className="w-full mt-1.5 px-0.5">
+                        <p className="text-[11px] font-semibold text-gray-800 truncate">{file.name}</p>
+                        <p className="text-[10px] text-gray-400 font-mono">
+                          {(file.size / (1024 * 1024)).toFixed(2)} MB
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeTweetImage(idx)}
+                        className="absolute top-2 right-2 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-md transition"
+                        title="Remove photo"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
+            </div>
+
+            {/* 5. Manual Hashtags Input */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Tag size={14} className="text-gray-500" />
+                Manual Hashtags
+              </label>
+              <input
+                type="text"
+                value={tweetHashtags}
+                onChange={(e) => setTweetHashtags(e.target.value)}
+                placeholder="#BreakingNews #Technology #India #Update"
+                className="w-full px-3.5 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+              />
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[10px] font-semibold text-gray-400">Quick tags:</span>
+                {["#BreakingNews", "#India", "#Technology", "#Business", "#SSLocal", "#Update"].map((tag) => {
+                  const isIncluded = tweetHashtags.includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => handleToggleHashtag(tag)}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-mono transition ${
+                        isIncluded
+                          ? "bg-blue-600 text-white font-bold"
+                          : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Action Buttons */}
             <div className="flex items-center justify-between pt-4 border-t border-gray-100">
               <button
                 type="button"
-                onClick={() => setTweetText("")}
+                onClick={() => {
+                  setTweetText("");
+                  setTweetHashtags("");
+                  setTweetArticleId("");
+                  setTweetImages([]);
+                }}
                 className="text-xs text-gray-400 hover:text-gray-600 font-medium"
               >
-                Clear Text
+                Clear Form
               </button>
               <button
                 type="button"
                 onClick={handlePostTweet}
-                disabled={isPostingTweet || !tweetText.trim() || isOverLimit || !tweetDevice}
+                disabled={isPostingTweet || (!tweetText.trim() && tweetImages.length === 0) || isOverLimit || !tweetDevice}
                 className={`px-6 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all shadow-md ${
-                  !tweetText.trim() || isOverLimit || !tweetDevice
+                  (!tweetText.trim() && tweetImages.length === 0) || isOverLimit || !tweetDevice
                     ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                     : "bg-black hover:bg-zinc-800 text-white active:scale-95"
                 }`}
@@ -868,7 +1077,7 @@ export default function TwitterDashboardPage() {
             {/* Mocked Twitter Card */}
             <div className="bg-black text-white p-5 rounded-2xl border border-zinc-800 shadow-xl font-sans">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center font-bold text-white text-sm shrink-0">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center font-bold text-white text-sm shrink-0">
                   {tweetDeviceObj?.name ? tweetDeviceObj.name.charAt(0) : "X"}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -876,7 +1085,7 @@ export default function TwitterDashboardPage() {
                     <span className="font-bold text-sm text-white truncate">
                       {tweetDeviceObj?.name || "Official SS Local News"}
                     </span>
-                    <span className="text-blue-400">
+                    <span className="text-sky-400">
                       <svg className="w-4 h-4 fill-current inline" viewBox="0 0 24 24">
                         <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                       </svg>
@@ -892,6 +1101,8 @@ export default function TwitterDashboardPage() {
                   <div className="mt-2 text-sm text-zinc-100 whitespace-pre-wrap leading-relaxed break-words">
                     {tweetText.trim() ? (
                       tweetText
+                    ) : tweetImages.length > 0 ? (
+                      <span className="text-zinc-500 italic">Photo Tweet</span>
                     ) : (
                       <span className="text-zinc-600 italic">
                         Your custom tweet preview will appear here in real-time...
@@ -899,9 +1110,97 @@ export default function TwitterDashboardPage() {
                     )}
                   </div>
 
+                  {/* Rendered Manual Hashtags in Twitter Sky Blue */}
+                  {tweetHashtags.trim() && (
+                    <div className="mt-2 text-xs text-sky-400 font-medium font-mono whitespace-pre-wrap">
+                      {tweetHashtags}
+                    </div>
+                  )}
+
+                  {/* Render Attached Photos (Twitter grid layout) */}
+                  {tweetImagePreviews.length > 0 && (
+                    <div className="mt-3">
+                      {tweetImagePreviews.length === 1 && (
+                        <img
+                          src={tweetImagePreviews[0]}
+                          alt="Attachment 1"
+                          className="w-full max-h-72 object-cover rounded-2xl border border-zinc-800"
+                        />
+                      )}
+                      {tweetImagePreviews.length === 2 && (
+                        <div className="grid grid-cols-2 gap-1 rounded-2xl overflow-hidden border border-zinc-800 max-h-64">
+                          <img
+                            src={tweetImagePreviews[0]}
+                            alt="Attachment 1"
+                            className="w-full h-48 object-cover"
+                          />
+                          <img
+                            src={tweetImagePreviews[1]}
+                            alt="Attachment 2"
+                            className="w-full h-48 object-cover"
+                          />
+                        </div>
+                      )}
+                      {tweetImagePreviews.length === 3 && (
+                        <div className="grid grid-cols-2 gap-1 rounded-2xl overflow-hidden border border-zinc-800 max-h-64">
+                          <img
+                            src={tweetImagePreviews[0]}
+                            alt="Attachment 1"
+                            className="w-full h-48 object-cover"
+                          />
+                          <div className="grid grid-rows-2 gap-1 h-48">
+                            <img
+                              src={tweetImagePreviews[1]}
+                              alt="Attachment 2"
+                              className="w-full h-24 object-cover"
+                            />
+                            <img
+                              src={tweetImagePreviews[2]}
+                              alt="Attachment 3"
+                              className="w-full h-24 object-cover"
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {tweetImagePreviews.length >= 4 && (
+                        <div className="grid grid-cols-2 grid-rows-2 gap-1 rounded-2xl overflow-hidden border border-zinc-800 max-h-64">
+                          {tweetImagePreviews.slice(0, 4).map((src, i) => (
+                            <img
+                              key={i}
+                              src={src}
+                              alt={`Attachment ${i + 1}`}
+                              className="w-full h-24 object-cover"
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Linked News Article Card Preview */}
+                  {tweetArticleId && (
+                    (() => {
+                      const linked = approvedNews.find((n) => n.id === parseInt(tweetArticleId));
+                      if (!linked) return null;
+                      return (
+                        <div className="mt-3 p-3 rounded-2xl border border-zinc-800 bg-zinc-950 flex flex-col gap-1">
+                          <span className="text-[10px] text-zinc-500 font-mono truncate">
+                            {linked.url || "news.sslocal.in"}
+                          </span>
+                          <h5 className="text-xs font-bold text-zinc-200 leading-snug line-clamp-1">
+                            {linked.headline}
+                          </h5>
+                          <p className="text-[11px] text-zinc-400 line-clamp-2">
+                            {linked.summary}
+                          </p>
+                        </div>
+                      );
+                    })()
+                  )}
+
                   {/* Mocked Interaction Metrics */}
                   <div className="mt-4 pt-3 border-t border-zinc-900 flex items-center justify-between text-zinc-500 text-xs">
-                    <button type="button" className="flex items-center gap-1.5 hover:text-blue-400 transition">
+                    <button type="button" className="flex items-center gap-1.5 hover:text-sky-400 transition">
                       <MessageCircle size={14} /> <span>0</span>
                     </button>
                     <button type="button" className="flex items-center gap-1.5 hover:text-emerald-400 transition">
@@ -910,10 +1209,10 @@ export default function TwitterDashboardPage() {
                     <button type="button" className="flex items-center gap-1.5 hover:text-rose-400 transition">
                       <Heart size={14} /> <span>0</span>
                     </button>
-                    <button type="button" className="flex items-center gap-1.5 hover:text-blue-400 transition">
+                    <button type="button" className="flex items-center gap-1.5 hover:text-sky-400 transition">
                       <Bookmark size={14} />
                     </button>
-                    <button type="button" className="flex items-center gap-1.5 hover:text-blue-400 transition">
+                    <button type="button" className="flex items-center gap-1.5 hover:text-sky-400 transition">
                       <Share2 size={14} />
                     </button>
                   </div>
@@ -930,7 +1229,10 @@ export default function TwitterDashboardPage() {
                 1. Once queued, the selected Android phone companion app receives this task on its next polling pulse.
               </p>
               <p>
-                2. It launches Twitter with this exact post pre-filled into the composer, auto-clicks &quot;Post&quot;, and reports back completion status.
+                2. If photos are attached, the companion app downloads them to local storage and passes them into Twitter&apos;s composer via native share intents.
+              </p>
+              <p>
+                3. It enters your text and manual hashtags, auto-clicks &quot;Post&quot;, and reports back completion status to the dashboard.
               </p>
             </div>
           </div>
@@ -1175,18 +1477,40 @@ export default function TwitterDashboardPage() {
                       <tr key={task.id} className="hover:bg-gray-50/60 transition-colors">
                         <td className="py-3.5 px-4 font-mono text-gray-500">#{task.id}</td>
                         <td className="py-3.5 px-4">
-                          <span
-                            className={`font-semibold px-2 py-0.5 rounded-full text-[10px] ${
-                              task.task_type === "TWEET"
-                                ? "bg-black text-white"
-                                : "bg-blue-100 text-blue-700"
-                            }`}
-                          >
-                            {task.task_type === "TWEET" ? "Tweet Post" : "News DM"}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={`font-semibold px-2 py-0.5 rounded-full text-[10px] ${
+                                task.task_type === "TWEET"
+                                  ? "bg-black text-white"
+                                  : "bg-blue-100 text-blue-700"
+                              }`}
+                            >
+                              {task.task_type === "TWEET" ? "Tweet Post" : "News DM"}
+                            </span>
+                            {task.media_files && task.media_files.length > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-[10px] font-bold flex items-center gap-0.5">
+                                <ImageIcon size={10} /> {task.media_files.length}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3.5 px-4 font-mono font-bold text-gray-900">
-                          {task.task_type === "TWEET" ? "Public Feed" : task.target_handle || "—"}
+                          <div>
+                            <span>{task.task_type === "TWEET" ? "Public Feed" : task.target_handle || "—"}</span>
+                            {task.content && (
+                              <p className="text-[11px] font-normal text-gray-500 line-clamp-1 mt-0.5 font-sans">
+                                {task.content}
+                              </p>
+                            )}
+                            {task.hashtags && (
+                              <p className="text-[10px] font-mono text-sky-600 mt-0.5">{task.hashtags}</p>
+                            )}
+                            {task.article_title && (
+                              <p className="text-[10px] font-sans text-gray-400 mt-0.5 truncate">
+                                📰 {task.article_title}
+                              </p>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3.5 px-4 text-gray-600 font-medium">
                           {task.device_name || task.device_phone || `Device #${task.device}`}

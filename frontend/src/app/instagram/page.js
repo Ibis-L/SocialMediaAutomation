@@ -17,9 +17,18 @@ import {
   ShieldCheck,
   AlertCircle,
   FileText,
-  Clock
+  Clock,
+  Image as ImageIcon,
+  Film,
+  Video,
+  Layers,
+  UploadCloud,
+  Tag,
+  Check,
+  X as CloseIcon
 } from "lucide-react";
 import Link from "next/link";
+import { getApiBaseUrl } from "@/lib/api";
 
 function InstagramIcon({ className = "w-5 h-5" }) {
   return (
@@ -46,6 +55,29 @@ export default function InstagramDashboardPage() {
   const [targetUsernames, setTargetUsernames] = useState("");
   const [isSendingDm, setIsSendingDm] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState(null);
+
+  // Feed Post state
+  const [postDevice, setPostDevice] = useState(null);
+  const [postFiles, setPostFiles] = useState([]);
+  const [postCaption, setPostCaption] = useState("");
+  const [postHashtags, setPostHashtags] = useState("");
+  const [postArticleId, setPostArticleId] = useState("");
+  const [isQueueingPost, setIsQueueingPost] = useState(false);
+
+  // Story state
+  const [storyDevice, setStoryDevice] = useState(null);
+  const [storyFile, setStoryFile] = useState(null);
+  const [storyCaption, setStoryCaption] = useState("");
+  const [storyArticleId, setStoryArticleId] = useState("");
+  const [isQueueingStory, setIsQueueingStory] = useState(false);
+
+  // Reel state
+  const [reelDevice, setReelDevice] = useState(null);
+  const [reelFile, setReelFile] = useState(null);
+  const [reelCaption, setReelCaption] = useState("");
+  const [reelHashtags, setReelHashtags] = useState("");
+  const [reelArticleId, setReelArticleId] = useState("");
+  const [isQueueingReel, setIsQueueingReel] = useState(false);
 
   // Target Handles Directory state (empty default, persisted in browser)
   const [savedHandles, setSavedHandles] = useState([]);
@@ -86,8 +118,9 @@ export default function InstagramDashboardPage() {
   const fetchApprovedNews = useCallback(async () => {
     try {
       setRefreshingNews(true);
+      const apiBase = getApiBaseUrl();
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/masters/api/editor/article/?status=APPROVED`,
+        `${apiBase}/masters/api/editor/article/?status=APPROVED`,
         { cache: "no-store" }
       );
       if (res.ok) {
@@ -275,6 +308,139 @@ export default function InstagramDashboardPage() {
     }
   };
 
+  // Submit Feed Post (Single/Carousel/Video)
+  const handleQueuePost = async (e) => {
+    e?.preventDefault();
+    if (!postDevice) {
+      setFeedbackMessage({ type: "error", text: "Please select an assigned Android device." });
+      return;
+    }
+    if (postFiles.length === 0) {
+      setFeedbackMessage({ type: "error", text: "Please upload at least one image or video for the Feed Post." });
+      return;
+    }
+
+    try {
+      setIsQueueingPost(true);
+      setFeedbackMessage(null);
+      const formData = new FormData();
+      formData.append("device_id", postDevice);
+      formData.append("task_type", "POST");
+      formData.append("caption", postCaption.trim());
+      formData.append("hashtags", postHashtags.trim());
+      if (postArticleId) formData.append("article_id", postArticleId);
+      postFiles.forEach((file) => formData.append("files", file));
+
+      const res = await fetch("/api/instagram/tasks", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPostFiles([]);
+        setPostCaption("");
+        setPostHashtags("");
+        setPostArticleId("");
+        fetchTasks();
+        setActiveTab("queue");
+      } else {
+        setFeedbackMessage({ type: "error", text: data.error || "Failed to queue Instagram Post." });
+      }
+    } catch (err) {
+      setFeedbackMessage({ type: "error", text: "Error queueing post: " + err.message });
+    } finally {
+      setIsQueueingPost(false);
+    }
+  };
+
+  // Submit Story
+  const handleQueueStory = async (e) => {
+    e?.preventDefault();
+    if (!storyDevice) {
+      setFeedbackMessage({ type: "error", text: "Please select an assigned Android device." });
+      return;
+    }
+    if (!storyFile) {
+      setFeedbackMessage({ type: "error", text: "Please upload an image or video file for your Story." });
+      return;
+    }
+
+    try {
+      setIsQueueingStory(true);
+      setFeedbackMessage(null);
+      const formData = new FormData();
+      formData.append("device_id", storyDevice);
+      formData.append("task_type", "STORY");
+      formData.append("caption", storyCaption.trim());
+      if (storyArticleId) formData.append("article_id", storyArticleId);
+      formData.append("files", storyFile);
+
+      const res = await fetch("/api/instagram/tasks", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStoryFile(null);
+        setStoryCaption("");
+        setStoryArticleId("");
+        fetchTasks();
+        setActiveTab("queue");
+      } else {
+        setFeedbackMessage({ type: "error", text: data.error || "Failed to queue Instagram Story." });
+      }
+    } catch (err) {
+      setFeedbackMessage({ type: "error", text: "Error queueing story: " + err.message });
+    } finally {
+      setIsQueueingStory(false);
+    }
+  };
+
+  // Submit Reel
+  const handleQueueReel = async (e) => {
+    e?.preventDefault();
+    if (!reelDevice) {
+      setFeedbackMessage({ type: "error", text: "Please select an assigned Android device." });
+      return;
+    }
+    if (!reelFile) {
+      setFeedbackMessage({ type: "error", text: "Please upload a video file for your Reel." });
+      return;
+    }
+
+    try {
+      setIsQueueingReel(true);
+      setFeedbackMessage(null);
+      const formData = new FormData();
+      formData.append("device_id", reelDevice);
+      formData.append("task_type", "REEL");
+      formData.append("caption", reelCaption.trim());
+      formData.append("hashtags", reelHashtags.trim());
+      if (reelArticleId) formData.append("article_id", reelArticleId);
+      formData.append("files", reelFile);
+
+      const res = await fetch("/api/instagram/tasks", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setReelFile(null);
+        setReelCaption("");
+        setReelHashtags("");
+        setReelArticleId("");
+        fetchTasks();
+        setActiveTab("queue");
+      } else {
+        setFeedbackMessage({ type: "error", text: data.error || "Failed to queue Instagram Reel." });
+      }
+    } catch (err) {
+      setFeedbackMessage({ type: "error", text: "Error queueing reel: " + err.message });
+    } finally {
+      setIsQueueingReel(false);
+    }
+  };
+
   const filteredTasks = tasks.filter((t) => {
     if (queueFilter === "ALL") return true;
     return (t.status || "").toUpperCase() === queueFilter;
@@ -318,7 +484,7 @@ export default function InstagramDashboardPage() {
       </div>
 
       {/* ── Sub-tab Navigation ── */}
-      <div className="flex items-center bg-gray-100 p-1 rounded-xl gap-1 w-fit">
+      <div className="flex items-center bg-gray-100 p-1 rounded-xl gap-1 w-fit flex-wrap">
         <button
           onClick={() => setActiveTab("dm")}
           className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -327,7 +493,37 @@ export default function InstagramDashboardPage() {
               : "text-gray-600 hover:text-gray-900"
           }`}
         >
-          <Send className="w-3.5 h-3.5" /> Direct Messages &amp; News
+          <Send className="w-3.5 h-3.5" /> Direct Messages
+        </button>
+        <button
+          onClick={() => setActiveTab("post")}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            activeTab === "post"
+              ? "bg-white text-gray-900 shadow-sm"
+              : "text-gray-600 hover:text-gray-900"
+          }`}
+        >
+          <ImageIcon className="w-3.5 h-3.5" /> Feed Post
+        </button>
+        <button
+          onClick={() => setActiveTab("story")}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            activeTab === "story"
+              ? "bg-white text-gray-900 shadow-sm"
+              : "text-gray-600 hover:text-gray-900"
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5" /> Story
+        </button>
+        <button
+          onClick={() => setActiveTab("reel")}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            activeTab === "reel"
+              ? "bg-white text-gray-900 shadow-sm"
+              : "text-gray-600 hover:text-gray-900"
+          }`}
+        >
+          <Film className="w-3.5 h-3.5" /> Reel
         </button>
         <button
           onClick={() => setActiveTab("handles")}
@@ -597,6 +793,587 @@ export default function InstagramDashboardPage() {
                   <Send className={`w-4 h-4 ${isSendingDm ? "animate-pulse" : ""}`} />
                   {isSendingDm ? "Queuing Tasks..." : "Send Instagram DMs"}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: FEED POST COMPOSER ── */}
+      {activeTab === "post" && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start min-h-[580px]">
+          {/* Form */}
+          <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <ImageIcon className="w-5 h-5 text-pink-600" /> Create Feed Post
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Upload single/multiple photos (carousel) or video, write your custom caption and hashtags.
+                </p>
+              </div>
+            </div>
+
+            {/* Device Selector */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-pink-600" /> Select Dispatch Device
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {devices.map((d) => (
+                  <div
+                    key={d.id}
+                    onClick={() => setPostDevice(d.id)}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                      postDevice === d.id
+                        ? "border-pink-600 bg-pink-50/40 ring-1 ring-pink-600 shadow-sm"
+                        : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
+                  >
+                    <div className="truncate">
+                      <p className="text-xs font-bold text-gray-900 truncate">{d.name || "Device"}</p>
+                      <p className="text-[11px] text-gray-500 font-mono">{d.phone_number}</p>
+                    </div>
+                    {postDevice === d.id && <CheckCircle2 className="w-4 h-4 text-pink-600 shrink-0" />}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Media Upload Area */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center justify-between">
+                <span>Upload Media (Single/Carousel/Video)</span>
+                <span className="text-[11px] text-gray-400 font-normal">PNG, JPG, MP4, MOV</span>
+              </label>
+              <div className="border-2 border-dashed border-gray-300 hover:border-pink-500 rounded-xl p-5 text-center transition-colors bg-gray-50/50">
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*,video/*"
+                  onChange={(e) => {
+                    const selected = Array.from(e.target.files || []);
+                    setPostFiles((prev) => [...prev, ...selected]);
+                  }}
+                  id="post-file-input"
+                  className="hidden"
+                />
+                <label htmlFor="post-file-input" className="cursor-pointer flex flex-col items-center gap-2">
+                  <div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center text-pink-600">
+                    <UploadCloud className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-bold text-gray-800">Click to choose photos or videos</span>
+                  <span className="text-[11px] text-gray-400">Select multiple files to create an Instagram Carousel</span>
+                </label>
+              </div>
+
+              {/* Uploaded Files Preview */}
+              {postFiles.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+                  {postFiles.map((f, idx) => (
+                    <div key={idx} className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-100 p-2 text-center">
+                      <p className="text-[11px] font-medium text-gray-800 truncate">{f.name}</p>
+                      <p className="text-[10px] text-gray-400">{(f.size / (1024 * 1024)).toFixed(2)} MB</p>
+                      <button
+                        type="button"
+                        onClick={() => setPostFiles(postFiles.filter((_, i) => i !== idx))}
+                        className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-full opacity-80 hover:opacity-100"
+                      >
+                        <CloseIcon className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Optional News Link Dropdown */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center justify-between">
+                <span>Link News Article (Optional)</span>
+                {postArticleId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const article = approvedNews.find((n) => n.id === parseInt(postArticleId));
+                      if (article) {
+                        setPostCaption(`🚨 ${article.headline}\n\n${article.summary}`);
+                      }
+                    }}
+                    className="text-[11px] text-pink-600 hover:underline flex items-center gap-1"
+                  >
+                    <Sparkles className="w-3 h-3" /> Autofill Caption from Article
+                  </button>
+                )}
+              </label>
+              <select
+                value={postArticleId}
+                onChange={(e) => setPostArticleId(e.target.value)}
+                className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white"
+              >
+                <option value="">Independent Post (No article link)</option>
+                {approvedNews.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.headline}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Manual Caption */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                Post Caption (Manual)
+              </label>
+              <textarea
+                rows={4}
+                value={postCaption}
+                onChange={(e) => setPostCaption(e.target.value)}
+                placeholder="Write your custom caption for this post..."
+                className="w-full p-3.5 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white"
+              />
+            </div>
+
+            {/* Manual Hashtags */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Tag className="w-3.5 h-3.5 text-gray-500" /> Hashtags (Manual)
+              </label>
+              <input
+                type="text"
+                value={postHashtags}
+                onChange={(e) => setPostHashtags(e.target.value)}
+                placeholder="#news #breaking #update #india"
+                className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white font-mono"
+              />
+              <p className="text-[11px] text-gray-400">Separate tags with spaces or commas. The app appends them automatically.</p>
+            </div>
+
+            {/* Submit */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleQueuePost}
+                disabled={isQueueingPost || !postDevice || postFiles.length === 0}
+                className={`w-full py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md ${
+                  !postDevice || postFiles.length === 0
+                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    : "bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 text-white hover:opacity-95 active:scale-95"
+                }`}
+              >
+                {isQueueingPost ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Queueing Feed Post...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" /> Queue Instagram Feed Post
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Live Preview */}
+          <div className="lg:col-span-5 space-y-3">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+              Feed Post Preview
+            </h3>
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-md overflow-hidden max-w-sm mx-auto">
+              <div className="p-3 flex items-center justify-between border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-yellow-400 to-pink-600 p-[1.5px]">
+                    <div className="w-full h-full bg-white rounded-full flex items-center justify-center text-[10px] font-bold">
+                      IG
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-gray-900 truncate">
+                    {devices.find((d) => d.id === postDevice)?.name || "Your Account"}
+                  </span>
+                </div>
+              </div>
+              <div className="aspect-square bg-gray-900 flex items-center justify-center text-gray-400 text-xs">
+                {postFiles.length > 0 ? (
+                  <div className="text-center p-4">
+                    <p className="text-white font-bold text-sm mb-1">
+                      {postFiles.length} file{postFiles.length > 1 ? "s" : ""} selected
+                    </p>
+                    <p className="text-[11px] text-gray-300 truncate max-w-[200px]">
+                      {postFiles[0].name}
+                    </p>
+                    {postFiles.length > 1 && (
+                      <span className="inline-block mt-2 px-2 py-0.5 bg-black/50 text-[10px] text-white rounded-full">
+                        Carousel (1/{postFiles.length})
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="flex items-center gap-1.5 opacity-60">
+                    <ImageIcon className="w-5 h-5" /> Media placeholder
+                  </span>
+                )}
+              </div>
+              <div className="p-3.5 space-y-1.5">
+                <p className="text-xs text-gray-900 whitespace-pre-wrap leading-relaxed">
+                  <span className="font-bold mr-1.5">
+                    {devices.find((d) => d.id === postDevice)?.name || "account"}
+                  </span>
+                  {postCaption || "Your post caption will appear here..."}
+                </p>
+                {postHashtags && (
+                  <p className="text-xs text-blue-900 font-medium font-mono">{postHashtags}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: STORY COMPOSER ── */}
+      {activeTab === "story" && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start min-h-[580px]">
+          <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-amber-500" /> Create Instagram Story
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Upload an image or video to post directly to your Story via automation.
+                </p>
+              </div>
+            </div>
+
+            {/* Device Selector */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-amber-500" /> Select Dispatch Device
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {devices.map((d) => (
+                  <div
+                    key={d.id}
+                    onClick={() => setStoryDevice(d.id)}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                      storyDevice === d.id
+                        ? "border-amber-500 bg-amber-50/40 ring-1 ring-amber-500 shadow-sm"
+                        : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
+                  >
+                    <div className="truncate">
+                      <p className="text-xs font-bold text-gray-900 truncate">{d.name || "Device"}</p>
+                      <p className="text-[11px] text-gray-500 font-mono">{d.phone_number}</p>
+                    </div>
+                    {storyDevice === d.id && <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" />}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* File Upload Area */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                Upload Story File (Image or Video)
+              </label>
+              <div className="border-2 border-dashed border-gray-300 hover:border-amber-500 rounded-xl p-5 text-center transition-colors bg-gray-50/50">
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) setStoryFile(file);
+                  }}
+                  id="story-file-input"
+                  className="hidden"
+                />
+                <label htmlFor="story-file-input" className="cursor-pointer flex flex-col items-center gap-2">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
+                    <UploadCloud className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-bold text-gray-800">
+                    {storyFile ? storyFile.name : "Click to choose Story media"}
+                  </span>
+                  <span className="text-[11px] text-gray-400">Supports 9:16 vertical photos and MP4 videos</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Optional News Link */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                Link News Article (Optional)
+              </label>
+              <select
+                value={storyArticleId}
+                onChange={(e) => setStoryArticleId(e.target.value)}
+                className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+              >
+                <option value="">Independent Story (No article link)</option>
+                {approvedNews.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.headline}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Story Text / Overlay */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                Caption / Text Overlay (Manual)
+              </label>
+              <textarea
+                rows={3}
+                value={storyCaption}
+                onChange={(e) => setStoryCaption(e.target.value)}
+                placeholder="Optional text for your Story..."
+                className="w-full p-3.5 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+              />
+            </div>
+
+            {/* Submit */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleQueueStory}
+                disabled={isQueueingStory || !storyDevice || !storyFile}
+                className={`w-full py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md ${
+                  !storyDevice || !storyFile
+                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    : "bg-gradient-to-r from-amber-500 to-pink-500 text-white hover:opacity-95 active:scale-95"
+                }`}
+              >
+                {isQueueingStory ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Queueing Story...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" /> Queue Instagram Story
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Story Preview */}
+          <div className="lg:col-span-5 space-y-3">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+              Story 9:16 Preview
+            </h3>
+            <div className="w-[240px] h-[426px] mx-auto rounded-3xl bg-gray-950 border-4 border-gray-800 shadow-xl overflow-hidden relative flex flex-col justify-between p-4 text-white">
+              <div className="flex items-center gap-2 z-10">
+                <div className="w-6 h-6 rounded-full bg-pink-600 flex items-center justify-center text-[9px] font-bold">
+                  S
+                </div>
+                <span className="text-[11px] font-bold truncate">
+                  {devices.find((d) => d.id === storyDevice)?.name || "Your Story"}
+                </span>
+              </div>
+              <div className="text-center my-auto px-2">
+                {storyCaption ? (
+                  <p className="text-xs font-bold bg-black/50 p-2 rounded-lg backdrop-blur-sm">
+                    {storyCaption}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-gray-400">
+                    {storyFile ? storyFile.name : "Story preview"}
+                  </p>
+                )}
+              </div>
+              <div className="text-center text-[10px] text-gray-400 z-10 pb-1">
+                Dispatches to Your Story
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: REEL COMPOSER ── */}
+      {activeTab === "reel" && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start min-h-[580px]">
+          <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <Film className="w-5 h-5 text-indigo-600" /> Create Instagram Reel
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Upload an MP4/MOV video, write your custom caption and hashtags for Reels discovery.
+                </p>
+              </div>
+            </div>
+
+            {/* Device Selector */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-indigo-600" /> Select Dispatch Device
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {devices.map((d) => (
+                  <div
+                    key={d.id}
+                    onClick={() => setReelDevice(d.id)}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                      reelDevice === d.id
+                        ? "border-indigo-600 bg-indigo-50/40 ring-1 ring-indigo-600 shadow-sm"
+                        : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
+                  >
+                    <div className="truncate">
+                      <p className="text-xs font-bold text-gray-900 truncate">{d.name || "Device"}</p>
+                      <p className="text-[11px] text-gray-500 font-mono">{d.phone_number}</p>
+                    </div>
+                    {reelDevice === d.id && <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Video File Upload */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                Upload Reel Video (.mp4 / .mov)
+              </label>
+              <div className="border-2 border-dashed border-gray-300 hover:border-indigo-500 rounded-xl p-5 text-center transition-colors bg-gray-50/50">
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) setReelFile(file);
+                  }}
+                  id="reel-file-input"
+                  className="hidden"
+                />
+                <label htmlFor="reel-file-input" className="cursor-pointer flex flex-col items-center gap-2">
+                  <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
+                    <Video className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-bold text-gray-800">
+                    {reelFile ? reelFile.name : "Click to choose video file"}
+                  </span>
+                  <span className="text-[11px] text-gray-400">Vertical MP4 video recommended</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Optional News Link */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center justify-between">
+                <span>Link News Article (Optional)</span>
+                {reelArticleId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const article = approvedNews.find((n) => n.id === parseInt(reelArticleId));
+                      if (article) {
+                        setReelCaption(`🔥 ${article.headline}\n\n${article.summary}`);
+                      }
+                    }}
+                    className="text-[11px] text-indigo-600 hover:underline flex items-center gap-1"
+                  >
+                    <Sparkles className="w-3 h-3" /> Autofill Caption
+                  </button>
+                )}
+              </label>
+              <select
+                value={reelArticleId}
+                onChange={(e) => setReelArticleId(e.target.value)}
+                className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              >
+                <option value="">Independent Reel (No article link)</option>
+                {approvedNews.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.headline}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Caption */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                Reel Caption (Manual)
+              </label>
+              <textarea
+                rows={3}
+                value={reelCaption}
+                onChange={(e) => setReelCaption(e.target.value)}
+                placeholder="Write your custom caption for this Reel..."
+                className="w-full p-3.5 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              />
+            </div>
+
+            {/* Hashtags */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Tag className="w-3.5 h-3.5 text-gray-500" /> Hashtags (Manual)
+              </label>
+              <input
+                type="text"
+                value={reelHashtags}
+                onChange={(e) => setReelHashtags(e.target.value)}
+                placeholder="#reels #viral #explore #news"
+                className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white font-mono"
+              />
+            </div>
+
+            {/* Submit */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleQueueReel}
+                disabled={isQueueingReel || !reelDevice || !reelFile}
+                className={`w-full py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md ${
+                  !reelDevice || !reelFile
+                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    : "bg-gradient-to-r from-indigo-600 to-pink-600 text-white hover:opacity-95 active:scale-95"
+                }`}
+              >
+                {isQueueingReel ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Queueing Reel...
+                  </>
+                ) : (
+                  <>
+                    <Film className="w-4 h-4" /> Queue Instagram Reel
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Reel Preview */}
+          <div className="lg:col-span-5 space-y-3">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+              Reels Preview
+            </h3>
+            <div className="w-[240px] h-[426px] mx-auto rounded-3xl bg-black border-4 border-gray-800 shadow-xl overflow-hidden relative flex flex-col justify-between p-4 text-white">
+              <div className="flex items-center justify-between text-xs font-bold z-10">
+                <span>Reels</span>
+                <Film className="w-4 h-4" />
+              </div>
+              <div className="text-center my-auto text-xs text-gray-400">
+                {reelFile ? (
+                  <p className="font-medium text-white truncate max-w-[180px] bg-black/60 p-2 rounded">
+                    {reelFile.name}
+                  </p>
+                ) : (
+                  <span>Video preview</span>
+                )}
+              </div>
+              <div className="space-y-1 z-10 pb-1">
+                <p className="text-xs font-bold">
+                  @{devices.find((d) => d.id === reelDevice)?.name || "channel"}
+                </p>
+                <p className="text-[11px] text-gray-200 line-clamp-2">
+                  {reelCaption || "Your Reel caption will appear here..."}
+                </p>
+                {reelHashtags && (
+                  <p className="text-[10px] text-pink-300 font-mono line-clamp-1">{reelHashtags}</p>
+                )}
               </div>
             </div>
           </div>

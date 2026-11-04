@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from . import views
 from . import api_views
 from . import twitter_views
+from . import instagram_views
 
 router = DefaultRouter()
 router.register(r'editor/article', api_views.ScrapedArticleViewSet, basename='editor-article')
@@ -14,6 +15,7 @@ router.register(r'youtube/videos', api_views.YouTubeVideoViewSet, basename='yout
 router.register(r'youtube/tasks', api_views.YouTubeTaskViewSet, basename='youtube-tasks')
 router.register(r'twitter/targets', twitter_views.TwitterTargetViewSet, basename='twitter-targets')
 router.register(r'twitter/tasks', twitter_views.TwitterTaskViewSet, basename='twitter-tasks')
+router.register(r'instagram/tasks', instagram_views.InstagramTaskViewSet, basename='instagram-tasks')
 router.register(r'app-versions', api_views.AppReleaseViewSet, basename='app-version')
 
 urlpatterns = [

@@ -21,16 +21,35 @@ DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = [
     h.strip() for h in os.environ.get('ALLOWED_HOSTS', '*').split(',') if h.strip()
 ]
+# Ensure production domain is always permitted
+for prod_host in ['sslocal.mediatechtemple.com', '.mediatechtemple.com', 'localhost', '127.0.0.1']:
+    if prod_host not in ALLOWED_HOSTS and '*' not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(prod_host)
 
-CSRF_TRUSTED_ORIGINS = [
-    o.strip() for o in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
+# Default trusted origins for CSRF (prevents 403 Forbidden in production over HTTPS)
+DEFAULT_CSRF_ORIGINS = [
+    'https://sslocal.mediatechtemple.com',
+    'http://sslocal.mediatechtemple.com',
+    'https://*.mediatechtemple.com',
+    'http://*.mediatechtemple.com',
+    'http://localhost:3000',
+    'http://localhost:8000',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:8000',
 ]
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(
+    DEFAULT_CSRF_ORIGINS + [
+        o.strip() for o in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
+    ]
+))
 
 # Internal Service-to-Service Secret for Dashboard proxy requests
 INTERNAL_API_SECRET = os.environ.get('INTERNAL_API_SECRET', 'mediatech-automation-secret-token-2026')
 
-# Ingress ke peeche HTTPS detect karne ke liye
+# Ingress / Reverse Proxy (Nginx, Traefik, Cloudflare, Kube Ingress) settings
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
 
 
 # Application definition

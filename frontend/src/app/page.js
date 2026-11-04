@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { getApiBaseUrl } from "@/lib/api";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import StatCard from "@/components/ui/StatCard";
@@ -19,7 +20,7 @@ export default function HomePage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const baseUrl = getApiBaseUrl();
 
       const statsRes = await fetch(`${baseUrl}/masters/api/scraper/stats/`, { cache: "no-store" });
       if (statsRes.ok) {

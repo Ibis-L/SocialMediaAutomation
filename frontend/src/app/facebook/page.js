@@ -18,6 +18,7 @@ import {
   Link as LinkIcon
 } from "lucide-react";
 import Link from "next/link";
+import { getApiBaseUrl } from "@/lib/api";
 
 function FacebookIcon({ className = "w-5 h-5" }) {
   return (
@@ -84,8 +85,9 @@ export default function FacebookDashboardPage() {
   const fetchApprovedNews = useCallback(async () => {
     try {
       setRefreshingNews(true);
+      const apiBase = getApiBaseUrl();
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/masters/api/editor/article/?status=APPROVED`,
+        `${apiBase}/masters/api/editor/article/?status=APPROVED`,
         { cache: "no-store" }
       );
       if (res.ok) {
