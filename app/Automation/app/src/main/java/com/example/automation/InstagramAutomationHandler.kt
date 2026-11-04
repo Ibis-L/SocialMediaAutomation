@@ -77,11 +77,7 @@ object InstagramAutomationHandler {
             val sendButton = findSendButton(rootNode)
             if (sendButton != null) {
                 Log.d(TAG, "Send button found! Clicking...")
-                if (sendButton.isClickable) {
-                    sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                } else {
-                    sendButton.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                }
+                performClickUpward(sendButton)
 
                 // Report success to backend
                 reportTaskStatus("COMPLETED")
@@ -100,9 +96,20 @@ object InstagramAutomationHandler {
         retryLater(service, handler, onFinish, onError, attempt)
     }
 
+    private fun performClickUpward(node: AccessibilityNodeInfo?): Boolean {
+        var curr = node
+        while (curr != null) {
+            if (curr.isClickable) {
+                return curr.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+            curr = curr.parent
+        }
+        return node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+    }
+
     private fun findEditText(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
-        if (node.className == "android.widget.EditText") return node
+        if (node.className == "android.widget.EditText" || node.isEditable) return node
 
         for (i in 0 until node.childCount) {
             val result = findEditText(node.getChild(i))
@@ -114,13 +121,16 @@ object InstagramAutomationHandler {
     private fun findSendButton(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
 
-        val contentDesc = node.contentDescription?.toString()
-        val text = node.text?.toString()
-        
-        // 🎯 TARGETING THE SPECIFIC INSTAGRAM SEND BUTTON
-        // The Instagram send button usually has the text 'Send' or content description 'Send'
-        if (contentDesc != null && contentDesc.equals("Send", ignoreCase = true)) return node
-        if (text != null && text.equals("Send", ignoreCase = true)) return node
+        val viewId = node.viewIdResourceName?.lowercase() ?: ""
+        val contentDesc = node.contentDescription?.toString()?.trim()
+        val text = node.text?.toString()?.trim()
+
+        if (viewId.contains("button_send") || viewId.contains("composer_send") || viewId.contains("send_button")) {
+            return node
+        }
+
+        if (contentDesc != null && (contentDesc.equals("Send", ignoreCase = true) || contentDesc.equals("Send message", ignoreCase = true))) return node
+        if (text != null && (text.equals("Send", ignoreCase = true) || text.equals("Send message", ignoreCase = true))) return node
 
         for (i in 0 until node.childCount) {
             val result = findSendButton(node.getChild(i))

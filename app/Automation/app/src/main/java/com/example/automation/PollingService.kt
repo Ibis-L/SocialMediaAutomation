@@ -145,6 +145,12 @@ class PollingService : Service() {
                                     AutomationState.taskType = "FACEBOOK"
                                     hasHandledTask = true
                                     launchFacebookDispatch(taskId, phoneNumber, message)
+                                } else if (platform == "twitter" || taskType.contains("TWITTER", ignoreCase = true)) {
+                                    AutomationState.platform = "TWITTER"
+                                    val isTweet = !phoneNumber.startsWith("@") && (phoneNumber.equals("TWEET", ignoreCase = true) || phoneNumber.equals("POST", ignoreCase = true) || phoneNumber.length > 30)
+                                    AutomationState.taskType = if (isTweet) "TWITTER_TWEET" else "TWITTER_DM"
+                                    hasHandledTask = true
+                                    launchTwitterFromPrimaryDispatch(taskId, phoneNumber, message)
                                 } else {
                                     AutomationState.platform = "WHATSAPP"
                                     AutomationState.taskType = "WHATSAPP"
@@ -449,6 +455,19 @@ class PollingService : Service() {
             putExtra("taskType", "WHATSAPP")
             putExtra("taskId", taskId)
             putExtra("phoneNumber", phone)
+            putExtra("message", msg)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        launchActivityWithBypass(intent)
+    }
+
+    private fun launchTwitterFromPrimaryDispatch(taskId: String, target: String, msg: String) {
+        val isTweet = !target.startsWith("@") && (target.equals("TWEET", ignoreCase = true) || target.equals("POST", ignoreCase = true) || target.length > 30)
+        val intent = Intent(this, MainActivity::class.java).apply {
+            putExtra("platform", "TWITTER")
+            putExtra("taskType", if (isTweet) "TWITTER_TWEET" else "TWITTER_DM")
+            putExtra("taskId", taskId)
+            putExtra("targetHandle", target)
             putExtra("message", msg)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }

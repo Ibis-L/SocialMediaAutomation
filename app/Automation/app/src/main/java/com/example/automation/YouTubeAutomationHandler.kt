@@ -273,8 +273,17 @@ class YouTubeAutomationHandler(private val service: AccessibilityService) {
             return
         }
 
-        Log.d(TAG, "[Step 2: Audience] Tapping 'Select audience' row...")
+        Log.d(TAG, "[Step 2: Audience] Checking 'Select audience' row...")
         val audNode = findNodeRecursive(root, "Select audience")
+            ?: findNodeRecursive(root, "Audience")
+
+        if (audNode == null) {
+            Log.d(TAG, "[Step 2: Audience] 'Select audience' row not visible, skipping audience step.")
+            onDone()
+            return
+        }
+
+        Log.d(TAG, "[Step 2: Audience] Tapping 'Select audience' row...")
         clickNodeOrFallback(audNode, centerX, (screenH * 0.646f).toInt())
 
         handler.postDelayed({
@@ -282,13 +291,15 @@ class YouTubeAutomationHandler(private val service: AccessibilityService) {
             val targetText = if (isMadeForKids) "Yes, it's Made for Kids" else "No, it's not Made for Kids"
             val fallbackOptionY = if (isMadeForKids) (screenH * 0.337f).toInt() else (screenH * 0.416f).toInt()
 
-            Log.d(TAG, "[Step 2: Audience] Selecting '$targetText' at y=$fallbackOptionY...")
+            Log.d(TAG, "[Step 2: Audience] Selecting '$targetText'...")
             val optionNode = findNodeRecursive(audRoot, targetText)
+                ?: findNodeRecursive(audRoot, if (isMadeForKids) "Yes, it's made for kids" else "No, it's not made for kids")
             clickNodeOrFallback(optionNode, centerX, fallbackOptionY)
 
             handler.postDelayed({
-                Log.d(TAG, "[Step 2: Audience] Tapping top-left Back arrow to return to Add details...")
+                Log.d(TAG, "[Step 2: Audience] Returning to Add details screen...")
                 clickTopLeftBackArrow(screenW, screenH)
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
                 handler.postDelayed({ onDone() }, 1000)
             }, 700)
         }, 1100)
@@ -372,9 +383,16 @@ class YouTubeAutomationHandler(private val service: AccessibilityService) {
             return
         }
 
-        Log.d(TAG, "[Step 4: Upload] Clicking final Upload button...")
+        val isShorts = findNodeRecursive(root, "Caption your Short") != null ||
+                findNodeRecursive(root, "Upload Short") != null
+
+        // Shorts button is at bottom center/right; standard video Upload button is at the top right
+        val fallbackX = if (isShorts) centerX else (screenW * 0.88f).toInt()
+        val fallbackY = if (isShorts) (screenH * 0.960f).toInt() else (screenH * 0.065f).toInt()
+
+        Log.d(TAG, "[Step 4: Upload] Clicking final Upload button (isShorts=$isShorts, fallback=($fallbackX, $fallbackY))...")
         val uploadBtn = findRealUploadButton(root)
-        clickNodeOrFallback(uploadBtn, centerX, (screenH * 0.960f).toInt())
+        clickNodeOrFallback(uploadBtn, fallbackX, fallbackY)
 
         handler.postDelayed({
             onDone()
@@ -392,7 +410,8 @@ class YouTubeAutomationHandler(private val service: AccessibilityService) {
                         findNodeRecursive(root, "Sending") != null ||
                         findNodeRecursive(root, "Processing") != null ||
                         findNodeRecursive(root, "Preparing") != null ||
-                        findNodeRecursive(root, "See video") != null
+                        findNodeRecursive(root, "See video") != null ||
+                        findNodeRecursive(root, "Your videos") != null
                 )
 
         if (isExplicitUploadActive || (didReachAddDetails && !isStillOnAddDetails && pkg == "com.google.android.youtube")) {
@@ -400,9 +419,14 @@ class YouTubeAutomationHandler(private val service: AccessibilityService) {
             onYouTubeUploadTriggered()
         } else {
             if (attempt < 3 && pkg == "com.google.android.youtube") {
-                Log.w(TAG, "Still on 'Add details' screen (attempt $attempt). Retrying Upload tap...")
+                val isShorts = findNodeRecursive(root, "Caption your Short") != null ||
+                        findNodeRecursive(root, "Upload Short") != null
+                val fallbackX = if (isShorts) centerX else (screenW * 0.88f).toInt()
+                val fallbackY = if (isShorts) (screenH * 0.960f).toInt() else (screenH * 0.065f).toInt()
+
+                Log.w(TAG, "Still on 'Add details' screen (attempt $attempt). Retrying Upload tap at ($fallbackX, $fallbackY)...")
                 val uploadBtn = findRealUploadButton(root)
-                clickNodeOrFallback(uploadBtn, centerX, (screenH * 0.960f).toInt())
+                clickNodeOrFallback(uploadBtn, fallbackX, fallbackY)
 
                 handler.postDelayed({
                     verifyUploadAndComplete(screenW, screenH, centerX, attempt + 1)
@@ -520,11 +544,25 @@ class YouTubeAutomationHandler(private val service: AccessibilityService) {
 
     private fun findRealUploadButton(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
-        try {
-            val byId = node.findAccessibilityNodeInfosByViewId("com.google.android.youtube:id/upload_bottom_button")
-            if (!byId.isNullOrEmpty()) return byId[0]
-        } catch (e: Exception) {}
-        return findNodeRecursive(node, "Upload")
+        val candidates = listOf(
+            "com.google.android.youtube:id/upload_bottom_button",
+            "com.google.android.youtube:id/upload_button",
+            "com.google.android.youtube:id/menu_item_1",
+            "com.google.android.youtube:id/action_save",
+            "com.google.android.youtube:id/next_button"
+        )
+        for (id in candidates) {
+            try {
+                val list = node.findAccessibilityNodeInfosByViewId(id)
+                if (!list.isNullOrEmpty()) return list[0]
+            } catch (e: Exception) {}
+        }
+        return findNodeRecursive(node, "Upload Short")
+            ?: findNodeRecursive(node, "Upload video")
+            ?: findNodeRecursive(node, "Upload")
+            ?: findNodeRecursive(node, "UPLOAD")
+            ?: findNodeRecursive(node, "Publish")
+            ?: findNodeRecursive(node, "Next")
     }
 
     private fun findTitleEditText(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {

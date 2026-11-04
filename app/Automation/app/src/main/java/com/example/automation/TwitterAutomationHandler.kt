@@ -159,24 +159,31 @@ object TwitterAutomationHandler {
             // Focus the input field first
             messageInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
 
+            // Copy to clipboard to support native pasting (enables Send button in X app)
+            try {
+                val clipboard = service.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("twitter_msg", textToSend)
+                clipboard?.setPrimaryClip(clip)
+            } catch (e: Exception) {}
+
             // Small delay before setting text to ensure field is focused
             handler.postDelayed({
                 val refreshedRoot = service.rootInActiveWindow
-                val refreshedInput = findTwitterMessageInput(refreshedRoot)
-                if (refreshedInput != null) {
+                val refreshedInput = findTwitterMessageInput(refreshedRoot) ?: messageInput
+
+                // Try paste first (triggers text watcher so Send button enables)
+                val pasted = refreshedInput.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                if (!pasted) {
                     val arguments = Bundle().apply {
                         putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, textToSend)
                     }
                     refreshedInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
-
-                    // Wait for text to be set, then find and click Send
-                    handler.postDelayed({
-                        clickSendButtonInConversation(service, handler, 0, onFinish, onError)
-                    }, 800)
-                } else {
-                    Log.w(TAG, "Twitter Conversation: Input disappeared after focus, retrying...")
-                    handler.postDelayed({ attemptTwitterConversationSend(service, handler, attempt + 1, onFinish, onError) }, 800)
                 }
+
+                // Wait for text to be set, then find and click Send
+                handler.postDelayed({
+                    clickSendButtonInConversation(service, handler, 0, onFinish, onError)
+                }, 800)
             }, 500)
             return
         }
@@ -235,18 +242,17 @@ object TwitterAutomationHandler {
             return node
         }
 
-        // Match by content description — must be EXACT to avoid false positives
-        // Twitter/X uses "Direct message @username" or "Send Direct Message"
-        if ((contentDesc.startsWith("Direct message", ignoreCase = true) ||
-             contentDesc.startsWith("Send Direct Message", ignoreCase = true) ||
-             contentDesc.equals("Message", ignoreCase = true)) &&
-            node.isClickable) {
+        // Match by content description — both exact and partial
+        if (contentDesc.startsWith("Direct message", ignoreCase = true) ||
+            contentDesc.startsWith("Send Direct Message", ignoreCase = true) ||
+            contentDesc.contains("Direct message", ignoreCase = true) ||
+            contentDesc.equals("Message", ignoreCase = true)) {
             Log.d(TAG, "DM button found by contentDesc: $contentDesc")
             return node
         }
 
-        // Match by text — "Message" text on a clickable button in profile area
-        if (text.equals("Message", ignoreCase = true) && node.isClickable) {
+        // Match by text — "Message" text on profile area
+        if (text.equals("Message", ignoreCase = true)) {
             Log.d(TAG, "DM button found by text: $text")
             return node
         }
@@ -268,13 +274,10 @@ object TwitterAutomationHandler {
             return node
         }
 
-        if ((text.equals("Follow", ignoreCase = true) ||
-             text.equals("Following", ignoreCase = true)) && node.isClickable) {
-            return node
-        }
-
-        if ((contentDesc.startsWith("Follow @", ignoreCase = true) ||
-             contentDesc.startsWith("Following @", ignoreCase = true)) && node.isClickable) {
+        if (text.equals("Follow", ignoreCase = true) ||
+            text.equals("Following", ignoreCase = true) ||
+            contentDesc.startsWith("Follow", ignoreCase = true) ||
+            contentDesc.startsWith("Following", ignoreCase = true)) {
             return node
         }
 
@@ -334,14 +337,15 @@ object TwitterAutomationHandler {
             }
         }
 
-        // Match by content description — exact match only
-        if ((contentDesc.equals("Send", ignoreCase = true) ||
-             contentDesc.equals("Send message", ignoreCase = true)) && node.isClickable) {
+        // Match by content description
+        if (contentDesc.equals("Send", ignoreCase = true) ||
+            contentDesc.equals("Send message", ignoreCase = true) ||
+            contentDesc.contains("Send", ignoreCase = true)) {
             return node
         }
 
         // Match by text
-        if (text.equals("Send", ignoreCase = true) && node.isClickable) {
+        if (text.equals("Send", ignoreCase = true)) {
             return node
         }
 
@@ -467,33 +471,33 @@ object TwitterAutomationHandler {
     // HELPERS & STATUS REPORTING
     // ─────────────────────────────────────────────────────────────────
     private fun clickNode(node: AccessibilityNodeInfo) {
-        if (node.isClickable) {
-            node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-        } else {
-            // Try parent
-            var parent = node.parent
-            var maxLevels = 3
-            while (parent != null && maxLevels-- > 0) {
-                if (parent.isClickable) {
-                    parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    return
-                }
-                parent = parent.parent
+        var curr: AccessibilityNodeInfo? = node
+        while (curr != null) {
+            if (curr.isClickable) {
+                curr.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                return
             }
+            curr = curr.parent
         }
+        node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
     }
 
     fun reportTwitterTaskStatus(status: String, resultMessage: String) {
         val serverBaseUrl = AutomationState.serverBaseUrl
         val taskId = AutomationState.currentTaskId
+        val deviceToken = AutomationState.deviceToken
 
         if (serverBaseUrl != null && taskId != null) {
             Thread {
                 try {
-                    val url = java.net.URL("$serverBaseUrl/masters/api/twitter/tasks/$taskId/complete/")
-                    val connection = url.openConnection() as java.net.HttpURLConnection
+                    // 1. Try Twitter-specific completion endpoint first
+                    var url = java.net.URL("$serverBaseUrl/masters/api/twitter/tasks/$taskId/complete/")
+                    var connection = url.openConnection() as java.net.HttpURLConnection
                     connection.requestMethod = "POST"
                     connection.setRequestProperty("Content-Type", "application/json")
+                    if (!deviceToken.isNullOrEmpty()) {
+                        connection.setRequestProperty("X-Device-Token", deviceToken)
+                    }
                     connection.doOutput = true
 
                     val json = JSONObject().apply {
@@ -506,9 +510,33 @@ object TwitterAutomationHandler {
                     outputStream.flush()
                     outputStream.close()
 
-                    connection.responseCode
+                    var code = connection.responseCode
                     connection.disconnect()
+
+                    // 2. If 404 or 400 (e.g. this Twitter task was queued as a WhatsAppTask with platform="twitter"),
+                    // report to the primary tasks endpoint
+                    if (code == 404 || code == 400) {
+                        url = java.net.URL("$serverBaseUrl/masters/api/tasks/$taskId/complete/")
+                        connection = url.openConnection() as java.net.HttpURLConnection
+                        connection.requestMethod = "POST"
+                        connection.setRequestProperty("Content-Type", "application/json")
+                        if (!deviceToken.isNullOrEmpty()) {
+                            connection.setRequestProperty("X-Device-Token", deviceToken)
+                        }
+                        connection.doOutput = true
+                        val primaryJson = JSONObject().apply {
+                            put("status", status)
+                        }
+                        val primaryStream = connection.outputStream
+                        primaryStream.write(primaryJson.toString().toByteArray(Charsets.UTF_8))
+                        primaryStream.flush()
+                        primaryStream.close()
+                        code = connection.responseCode
+                        connection.disconnect()
+                    }
+                    Log.d(TAG, "Reported Twitter task $taskId status=$status (HTTP $code)")
                 } catch (e: Exception) {
+                    Log.e(TAG, "Error reporting Twitter task status: ${e.message}")
                     e.printStackTrace()
                 }
             }.start()

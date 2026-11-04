@@ -26,6 +26,12 @@ class UpdateChecker(private val context: Context, private val serverBaseUrl: Str
     fun checkForUpdates() {
         if (serverBaseUrl.isEmpty()) return
 
+        // Skip update checks for debug builds so local development is never blocked
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "Running Debug build: skipping update checks")
+            return
+        }
+
         thread {
             try {
                 val url = URL("$serverBaseUrl/masters/api/app-versions/latest/")
