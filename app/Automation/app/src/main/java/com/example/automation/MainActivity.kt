@@ -2,6 +2,7 @@ package com.example.automation
 
 import android.app.KeyguardManager
 import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -374,25 +375,36 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // 5. Facebook Task Dispatch
-        if (platform.equals("FACEBOOK", ignoreCase = true) || taskType.equals("FACEBOOK", ignoreCase = true)) {
-            val username = intent?.getStringExtra("phoneNumber") ?: intent?.getStringExtra("targetHandle") ?: ""
-            if (!username.isNullOrEmpty() && !message.isNullOrEmpty()) {
-                wakeUpAndDismissLockScreen()
-                tvStatus?.text = "Executing Facebook Task #$taskId\nRecipient: $username"
-                AutomationState.currentTaskId = taskId
-                AutomationState.platform = "FACEBOOK"
-                AutomationState.currentTaskType = "FACEBOOK"
-                AutomationState.taskType = "FACEBOOK"
-                AutomationState.targetHandle = username
-                AutomationState.taskContent = message
-                AutomationState.currentMessage = message
-                dispatchFacebookIntent(username, message)
+        // 5. Facebook Task Dispatch (Feed Posts & DMs)
+        if (platform.equals("FACEBOOK", ignoreCase = true) || taskType.startsWith("FACEBOOK", ignoreCase = true)) {
+            val mediaUrisStrings = intent?.getStringArrayListExtra("mediaUris") ?: arrayListOf()
+            val mediaUris = mediaUrisStrings.map { Uri.parse(it) }
+
+            wakeUpAndDismissLockScreen()
+            AutomationState.currentTaskId = taskId
+            AutomationState.platform = "FACEBOOK"
+            AutomationState.taskContent = message
+            AutomationState.currentMessage = message
+
+            if (taskType.equals("FACEBOOK_POST", ignoreCase = true) || mediaUris.isNotEmpty()) {
+                tvStatus?.text = "Executing Facebook Post #$taskId\nMedia: ${mediaUris.size} item(s)"
+                AutomationState.currentTaskType = "FACEBOOK_POST"
+                AutomationState.taskType = "FACEBOOK_POST"
+                dispatchFacebookPostIntent(mediaUris, message ?: "")
                 return
             } else {
-                updateWaitingStatus()
-                return
+                val username = intent?.getStringExtra("phoneNumber") ?: intent?.getStringExtra("targetHandle") ?: ""
+                if (!username.isNullOrEmpty() && !message.isNullOrEmpty()) {
+                    tvStatus?.text = "Executing Facebook DM #$taskId\nRecipient: $username"
+                    AutomationState.currentTaskType = "FACEBOOK_DM"
+                    AutomationState.taskType = "FACEBOOK_DM"
+                    AutomationState.targetHandle = username
+                    dispatchFacebookIntent(username, message)
+                    return
+                }
             }
+            updateWaitingStatus()
+            return
         }
 
         // 3. WhatsApp Task Dispatch (Default)
@@ -837,6 +849,83 @@ class MainActivity : AppCompatActivity() {
             finish()
         } catch (e: Exception) {
             android.widget.Toast.makeText(this, "Facebook app not installed or invalid link", android.widget.Toast.LENGTH_SHORT).show()
+            e.printStackTrace()
+            AutomationState.isAutomationActive = false
+        }
+    }
+
+    private fun dispatchFacebookPostIntent(mediaUris: List<Uri>, caption: String) {
+        try {
+            // Copy caption to clipboard so accessibility can paste it reliably
+            if (caption.isNotEmpty()) {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("fb_caption", caption)
+                clipboard.setPrimaryClip(clip)
+            }
+
+            val intent = when {
+                mediaUris.isEmpty() -> {
+                    val launchIntent = packageManager.getLaunchIntentForPackage("com.facebook.katana")?.apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
+                    launchIntent ?: Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        setPackage("com.facebook.katana")
+                        putExtra(Intent.EXTRA_TEXT, caption)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
+                }
+                mediaUris.size == 1 -> {
+                    val uri = mediaUris[0]
+                    val isVideo = uri.toString().contains(".mp4", ignoreCase = true) || 
+                                  uri.toString().contains("video", ignoreCase = true)
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = if (isVideo) "video/*" else "image/*"
+                        setPackage("com.facebook.katana")
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_TEXT, caption)
+                        clipData = ClipData.newUri(contentResolver, "media", uri)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                }
+                else -> {
+                    Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                        type = "image/*"
+                        setPackage("com.facebook.katana")
+                        putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(mediaUris))
+                        putExtra(Intent.EXTRA_TEXT, caption)
+                        val clip = ClipData.newUri(contentResolver, "media_0", mediaUris[0])
+                        for (i in 1 until mediaUris.size) {
+                            clip.addItem(ClipData.Item(mediaUris[i]))
+                        }
+                        clipData = clip
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                }
+            }
+
+            for (u in mediaUris) {
+                try {
+                    grantUriPermission("com.facebook.katana", u, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (e: Exception) {}
+            }
+
+            AutomationState.isAutomationActive = true
+            AutomationState.platform = "FACEBOOK"
+            AutomationState.currentTaskType = "FACEBOOK_POST"
+            AutomationState.taskType = "FACEBOOK_POST"
+            AutomationState.taskContent = caption
+            AutomationState.currentMessage = caption
+
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                intent.setPackage(null)
+                startActivity(intent)
+            }
+            finish()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Facebook app error: ${e.message}", Toast.LENGTH_SHORT).show()
             e.printStackTrace()
             AutomationState.isAutomationActive = false
         }

@@ -350,6 +350,67 @@ class TwitterMedia(models.Model):
         return f"Twitter media #{self.order} for task {self.task_id}"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# FACEBOOK TASKS & MEDIA FILES (Feed Posts, Images, Videos, DMs)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class FacebookTask(models.Model):
+    TASK_TYPE_CHOICES = (
+        ('POST', 'Feed Post (text, image, or video)'),
+        ('DM', 'Direct Message / Share Link'),
+    )
+    STATUS_CHOICES = (
+        ('PENDING', 'Pending'),
+        ('PROCESSING', 'Processing'),
+        ('COMPLETED', 'Completed'),
+        ('FAILED', 'Failed'),
+    )
+
+    device = models.ForeignKey(
+        'WhatsAppDevice', on_delete=models.CASCADE, related_name='facebook_tasks'
+    )
+    task_type = models.CharField(max_length=10, choices=TASK_TYPE_CHOICES, default='POST')
+    caption = models.TextField(blank=True, default='', help_text="Post text or DM message")
+    target_url = models.CharField(max_length=500, blank=True, null=True, help_text="Target profile or share URL for DM")
+    article = models.ForeignKey(
+        'ScrapedArticle', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='facebook_tasks', help_text="Optional linked news article"
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    result_message = models.TextField(blank=True, null=True, help_text="Execution details reported by device")
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Facebook Task"
+        verbose_name_plural = "Facebook Tasks"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Facebook {self.task_type} via {self.device} ({self.status})"
+
+
+class FacebookMedia(models.Model):
+    MEDIA_TYPE_CHOICES = (
+        ('image', 'Image'),
+        ('video', 'Video'),
+    )
+    task = models.ForeignKey(
+        FacebookTask, on_delete=models.CASCADE, related_name='media_files'
+    )
+    file = models.FileField(upload_to='facebook_media/', help_text="Uploaded image or video file")
+    media_type = models.CharField(max_length=10, choices=MEDIA_TYPE_CHOICES, default='image')
+    order = models.PositiveIntegerField(default=0, help_text="Order in carousel (0 = first)")
+
+    class Meta:
+        verbose_name = "Facebook Media File"
+        verbose_name_plural = "Facebook Media Files"
+        ordering = ['order']
+
+    def __str__(self):
+        return f"{self.media_type} #{self.order} for task {self.task_id}"
+
+
 class WhatsAppTask(models.Model):
     STATUS_CHOICES = (
         ('PENDING', 'Pending'),

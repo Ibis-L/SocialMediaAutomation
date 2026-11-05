@@ -269,6 +269,60 @@ class PollingService : Service() {
                     }
                     igConn.disconnect()
                 }
+
+                // --- If no previous task, check for Facebook Content Tasks (Post with Media, or DM) ---
+                if (!hasHandledTask) {
+                    val fbUrl = URL("$serverBaseUrl/masters/api/facebook/tasks/poll/?deviceId=$encodedPhone")
+                    val fbConn = fbUrl.openConnection() as HttpURLConnection
+                    fbConn.requestMethod = "GET"
+                    fbConn.connectTimeout = 5000
+                    fbConn.readTimeout = 5000
+                    if (!deviceToken.isNullOrEmpty()) {
+                        fbConn.setRequestProperty("X-Device-Token", deviceToken)
+                    }
+
+                    if (fbConn.responseCode == HttpURLConnection.HTTP_OK) {
+                        val fbReader = BufferedReader(InputStreamReader(fbConn.inputStream))
+                        val fbResponse = fbReader.readText()
+                        fbReader.close()
+
+                        val fbJson = JSONObject(fbResponse)
+                        val hasFbTask = fbJson.optBoolean("hasTask", false)
+
+                        if (hasFbTask) {
+                            val taskId = fbJson.optString("taskId")
+                            val subType = fbJson.optString("subType", "POST")
+                            val caption = fbJson.optString("caption", fbJson.optString("message", ""))
+                            val targetHandle = fbJson.optString("targetHandle", "")
+                            val mediaUrlsArr = fbJson.optJSONArray("mediaUrls")
+
+                            val mediaUrls = mutableListOf<String>()
+                            if (mediaUrlsArr != null) {
+                                for (i in 0 until mediaUrlsArr.length()) {
+                                    val u = mediaUrlsArr.optString(i)
+                                    if (u.isNotEmpty()) mediaUrls.add(u)
+                                }
+                            }
+
+                            hasHandledTask = true
+                            AutomationState.serverBaseUrl = serverBaseUrl
+                            AutomationState.platform = "FACEBOOK"
+                            AutomationState.taskType = if (subType.equals("POST", ignoreCase = true)) "FACEBOOK_POST" else "FACEBOOK_DM"
+                            AutomationState.currentTaskType = AutomationState.taskType
+                            AutomationState.taskContent = caption
+                            AutomationState.currentMessage = caption
+
+                            if (mediaUrls.isNotEmpty()) {
+                                downloadAndLaunchFacebookPost(taskId, caption, mediaUrls, serverBaseUrl)
+                            } else if (subType.equals("POST", ignoreCase = true)) {
+                                launchFacebookPostTextDispatch(taskId, caption)
+                            } else {
+                                launchFacebookDispatch(taskId, targetHandle, caption)
+                            }
+                        }
+                    }
+                    fbConn.disconnect()
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -716,6 +770,50 @@ class PollingService : Service() {
             }
             launchActivityWithBypass(intent)
         }
+    }
+
+    private fun downloadAndLaunchFacebookPost(
+        taskId: String,
+        caption: String,
+        mediaUrls: List<String>,
+        serverBaseUrl: String
+    ) {
+        thread {
+            val prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+            val deviceToken = prefs.getString("device_token", AutomationState.deviceToken)
+            val uris = ArrayList<String>()
+
+            for ((idx, mUrl) in mediaUrls.withIndex()) {
+                val isVid = mUrl.contains(".mp4", ignoreCase = true) || mUrl.contains(".mov", ignoreCase = true)
+                val ext = if (isVid) "mp4" else if (mUrl.contains(".png", ignoreCase = true)) "png" else "jpg"
+                val file = downloadMediaFile(mUrl, serverBaseUrl, deviceToken, "fb_${taskId}_${idx}.$ext")
+                if (file != null) {
+                    val uri = getFileUri(file)
+                    uris.add(uri.toString())
+                }
+            }
+
+            val intent = Intent(this, MainActivity::class.java).apply {
+                putExtra("platform", "FACEBOOK")
+                putExtra("taskId", taskId)
+                putExtra("taskType", "FACEBOOK_POST")
+                putExtra("message", caption)
+                putStringArrayListExtra("mediaUris", uris)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            launchActivityWithBypass(intent)
+        }
+    }
+
+    private fun launchFacebookPostTextDispatch(taskId: String, caption: String) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            putExtra("platform", "FACEBOOK")
+            putExtra("taskId", taskId)
+            putExtra("taskType", "FACEBOOK_POST")
+            putExtra("message", caption)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        launchActivityWithBypass(intent)
     }
 
     private fun startForegroundServiceNotification() {

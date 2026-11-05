@@ -114,12 +114,12 @@ class WAAutoClickService : AccessibilityService() {
         // 5. FACEBOOK AUTOMATION FLOW (Delegated to FacebookAutomationHandler)
         // ─────────────────────────────────────────────────────────────
         if ((pkg == "com.facebook.katana" || pkg == "com.facebook.orca") &&
-            (AutomationState.platform == "FACEBOOK" || AutomationState.currentTaskType == "FACEBOOK")
+            (AutomationState.platform == "FACEBOOK" || AutomationState.currentTaskType.startsWith("FACEBOOK"))
         ) {
             if (!isProcessing) {
                 isProcessing = true
                 handler.removeCallbacks(safetyResetRunnable)
-                handler.postDelayed(safetyResetRunnable, 25000)
+                handler.postDelayed(safetyResetRunnable, 45000)
 
                 FacebookAutomationHandler.startFacebookFlow(
                     service = this,

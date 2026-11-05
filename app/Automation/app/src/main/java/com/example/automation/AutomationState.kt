@@ -32,16 +32,16 @@ object AutomationState {
     var deviceToken: String? = null
 
     @Volatile
-    var platform: String = "WHATSAPP" // "WHATSAPP", "TWITTER", "YOUTUBE", or "INSTAGRAM"
+    var platform: String = "WHATSAPP" // "WHATSAPP", "TWITTER", "YOUTUBE", "INSTAGRAM", "FACEBOOK"
 
     @Volatile
-    var taskType: String = "WHATSAPP" // "WHATSAPP", "TWITTER_DM", "TWITTER_TWEET", "YOUTUBE", "INSTAGRAM_DM"
+    var taskType: String = "WHATSAPP"
 
     @Volatile
     var instagramMethod: String = "COORDINATES" // "COORDINATES" or "ACCESSIBILITY"
 
     @Volatile
-    var instagramPhase: String = "IDLE" // "DM_TAB", "SEARCH_FOCUS", "SEARCH_EXPAND", "TYPE_USERNAME", "SELECT_USER", "TYPE_MESSAGE", "SEND_MESSAGE", "IDLE"
+    var instagramPhase: String = "IDLE"
 
     @Volatile
     var targetHandle: String? = null
@@ -51,6 +51,9 @@ object AutomationState {
 
     @Volatile
     var twitterPhase: String = "IDLE" // "PROFILE_CHECK", "CONVERSATION", "TWEET_COMPOSE", "IDLE"
+
+    @Volatile
+    var facebookPhase: String = "IDLE" // "PICKER", "COMPOSER", "SHARE_CONFIRM", "IDLE"
 
     @Volatile
     var currentMessage: String? = null

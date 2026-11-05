@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     ScrapedArticle, TemplateConfig, ScrapeLog, WhatsAppDevice, DeviceContact, 
-    WhatsAppTask, TwitterTarget, TwitterTask, TwitterMedia, InstagramTask, InstagramMedia
+    WhatsAppTask, TwitterTarget, TwitterTask, TwitterMedia, InstagramTask, InstagramMedia, FacebookTask, FacebookMedia
 )
 from django.utils import timezone
 from datetime import timedelta
@@ -151,6 +151,36 @@ class InstagramTaskSerializer(serializers.ModelSerializer):
             'id', 'device', 'device_name', 'device_phone',
             'task_type', 'caption', 'hashtags', 'full_caption',
             'article', 'article_title', 'media_files', 'status',
+            'created_at', 'processed_at'
+        ]
+
+class FacebookMediaSerializer(serializers.ModelSerializer):
+    media_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FacebookMedia
+        fields = ['id', 'file', 'media_url', 'media_type', 'order']
+
+    def get_media_url(self, obj):
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+
+class FacebookTaskSerializer(serializers.ModelSerializer):
+    device_name = serializers.CharField(source='device.name', read_only=True)
+    device_phone = serializers.CharField(source='device.phone_number', read_only=True)
+    media_files = FacebookMediaSerializer(many=True, read_only=True)
+    article_title = serializers.CharField(source='article.title', read_only=True)
+
+    class Meta:
+        model = FacebookTask
+        fields = [
+            'id', 'device', 'device_name', 'device_phone',
+            'task_type', 'caption', 'target_url',
+            'article', 'article_title', 'media_files', 'status', 'result_message',
             'created_at', 'processed_at'
         ]
 
