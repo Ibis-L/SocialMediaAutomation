@@ -74,7 +74,7 @@ class WAAutoClickService : AccessibilityService() {
                             closeAppAndGoHome()
                         },
                         onError = {
-                            resetState()
+                            closeAppAndGoHome()
                         }
                     )
                 }
@@ -220,6 +220,8 @@ class WAAutoClickService : AccessibilityService() {
     }
 
     fun closeAppAndGoHome() {
+        // Cancel safety timer immediately so it cannot fire FAILED after a successful post
+        handler.removeCallbacks(safetyResetRunnable)
         AutomationState.isAutomationActive = false
         performGlobalAction(GLOBAL_ACTION_HOME)
         handler.postDelayed({
@@ -239,6 +241,7 @@ class WAAutoClickService : AccessibilityService() {
         AutomationState.twitterPhase = "IDLE"
         AutomationState.currentTaskId = null
         isProcessing = false
+        TwitterAutomationHandler.resetTweetState()
         Log.d(TAG, "State reset completed. Ready for next server task.")
     }
 

@@ -25,12 +25,25 @@ object TwitterAutomationHandler {
     @Volatile
     private var isTweetCompleted = false
 
+    fun resetTweetState() {
+        isTweetSubmitted = false
+        isTweetCompleted = false
+        Log.d(TAG, "Tweet state reset.")
+    }
+
     fun startTwitterFlow(
         service: AccessibilityService,
         handler: Handler,
         onFinish: () -> Unit,
         onError: () -> Unit
     ) {
+        // If tweet is already done, just call onFinish so WAAutoClickService can go home cleanly.
+        // Do NOT reset the flags here - they stay true until the next NEW task.
+        if (isTweetCompleted) {
+            Log.d(TAG, "Tweet already completed. Calling onFinish to close cleanly.")
+            onFinish()
+            return
+        }
         Log.d(TAG, "Starting Twitter task flow. Type: ${AutomationState.taskType}. Phase: ${AutomationState.twitterPhase}")
         if (AutomationState.taskType == "TWITTER_TWEET") {
             isTweetSubmitted = false
@@ -374,11 +387,8 @@ object TwitterAutomationHandler {
         onFinish: () -> Unit,
         onError: () -> Unit
     ) {
-        if (isTweetCompleted) return
-
-        if (isTweetSubmitted) {
-            // Already submitted! Check for confirmation / toast banner
-            waitForTweetSentConfirmation(service, handler, 0, onFinish, onError)
+        if (isTweetCompleted || isTweetSubmitted) {
+            Log.d(TAG, "Tweet already submitted or completed. Ignoring attempt $attempt.")
             return
         }
 
@@ -460,100 +470,27 @@ object TwitterAutomationHandler {
             val btnText = (postButton.text?.toString() ?: postButton.contentDescription?.toString() ?: "").trim()
             Log.d(TAG, "Tweet Compose: Post button found ('$btnText')! Publishing Tweet...")
             clickNode(postButton)
-            isTweetSubmitted = true
 
-            // Transition to Phase D: Wait for confirmation banner ("Your post was sent")
+            // ── CRITICAL: Shut down the automation engine IMMEDIATELY ──
+            // This prevents any more accessibility events from triggering the flow again.
+            // Setting isAutomationActive = false here (before the delay) means no event
+            // can re-enter onAccessibilityEvent while we wait for Twitter's toast popup.
+            isTweetSubmitted = true
+            isTweetCompleted = true
+            AutomationState.isAutomationActive = false
+
+            Log.d(TAG, "Post clicked. Reporting COMPLETED to dashboard...")
+            reportTwitterTaskStatus(service, "COMPLETED", "Tweet published successfully via '$btnText' button")
+
+            // Allow Twitter ~2 seconds to show its toast/banner, then go home cleanly
             handler.postDelayed({
-                waitForTweetSentConfirmation(service, handler, 0, onFinish, onError)
-            }, 600)
+                Log.d(TAG, "Twitter post flow finished. Closing app and returning home...")
+                onFinish()
+            }, 2000)
             return
         }
 
         handler.postDelayed({ attemptTwitterTweetPublish(service, handler, attempt + 1, onFinish, onError) }, 800)
-    }
-
-    /**
-     * Phase D: Actively scans for Twitter's confirmation message/popup:
-     * "Your post was sent", "Your Tweet was sent", "Post sent", etc.
-     * Once confirmed (or after composer is confirmed closed), marks the task COMPLETED and closes Twitter cleanly.
-     */
-    private fun waitForTweetSentConfirmation(
-        service: AccessibilityService,
-        handler: Handler,
-        attempt: Int,
-        onFinish: () -> Unit,
-        onError: () -> Unit
-    ) {
-        if (isTweetCompleted) return
-
-        val rootNode = service.rootInActiveWindow
-        val confirmationText = findTweetSentConfirmation(rootNode)
-        if (confirmationText != null) {
-            Log.d(TAG, "Tweet confirmed published! Detected popup/snackbar: '$confirmationText'")
-            isTweetCompleted = true
-            reportTwitterTaskStatus(service, "COMPLETED", "Tweet published successfully ($confirmationText)")
-            handler.postDelayed({
-                onFinish()
-            }, 800)
-            return
-        }
-
-        // Check if the composer has closed (post button and composer input are gone)
-        val composerStillOpen = (findTweetComposerInput(rootNode) != null || findTweetPostButton(rootNode) != null)
-
-        // If after ~14 attempts (~7 seconds) and composer is no longer on screen, consider sent
-        if (attempt >= 14) {
-            if (!composerStillOpen) {
-                Log.d(TAG, "Tweet confirmation timeout reached, but post was submitted and composer is closed. Marking COMPLETED.")
-                isTweetCompleted = true
-                reportTwitterTaskStatus(service, "COMPLETED", "Tweet published successfully (composer closed)")
-                handler.postDelayed({
-                    onFinish()
-                }, 800)
-            } else {
-                Log.e(TAG, "Tweet composer is still open after 14 confirmation attempts.")
-                reportTwitterTaskStatus(service, "FAILED", "Tweet composer remained open after clicking post")
-                onError()
-            }
-            return
-        }
-
-        handler.postDelayed({
-            waitForTweetSentConfirmation(service, handler, attempt + 1, onFinish, onError)
-        }, 500)
-    }
-
-    private fun findTweetSentConfirmation(node: AccessibilityNodeInfo?): String? {
-        if (node == null) return null
-
-        val text = node.text?.toString()?.trim() ?: ""
-        val desc = node.contentDescription?.toString()?.trim() ?: ""
-
-        for (candidate in listOf(text, desc)) {
-            if (candidate.isNotEmpty()) {
-                val lower = candidate.lowercase()
-                if (lower.contains("post was sent") ||
-                    lower.contains("tweet was sent") ||
-                    lower.contains("post sent") ||
-                    lower.contains("tweet sent") ||
-                    lower.contains("your post was") ||
-                    lower.contains("your tweet was") ||
-                    lower.contains("post was uploaded") ||
-                    lower.contains("sent your post") ||
-                    lower == "post was sent." ||
-                    lower == "your post was sent." ||
-                    lower == "your post was sent"
-                ) {
-                    return candidate
-                }
-            }
-        }
-
-        for (i in 0 until node.childCount) {
-            val found = findTweetSentConfirmation(node.getChild(i))
-            if (found != null) return found
-        }
-        return null
     }
 
     private fun findPostOptionInShareSheet(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
@@ -653,12 +590,23 @@ object TwitterAutomationHandler {
 
     private fun findTweetPostButton(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
-        val viewId = node.viewIdResourceName ?: ""
+        val viewId = node.viewIdResourceName?.lowercase() ?: ""
         val text = node.text?.toString() ?: ""
         val contentDesc = node.contentDescription?.toString() ?: ""
+        val className = node.className?.toString() ?: ""
+
+        // NEVER match the floating action button (FAB) on the timeline!
+        if (viewId.contains("fab") || viewId.contains("floating") || viewId.contains("composer_write") ||
+            viewId.contains("compose_button") || viewId.contains("tweet_fab") ||
+            className.contains("FloatingActionButton")
+        ) {
+            return null
+        }
 
         if (viewId.endsWith(":id/button_tweet") || viewId.endsWith(":id/tweet_button") ||
-            viewId.endsWith(":id/composer_post_button") || viewId.endsWith(":id/post_button")) {
+            viewId.endsWith(":id/composer_post_button") || viewId.endsWith(":id/post_button") ||
+            viewId.contains("button_tweet") || viewId.contains("composer_post")
+        ) {
             return node
         }
 
