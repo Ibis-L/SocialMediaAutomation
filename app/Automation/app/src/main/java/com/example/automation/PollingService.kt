@@ -207,6 +207,7 @@ class PollingService : Service() {
                             if (fullContent.isNotEmpty() || mediaUrls.isNotEmpty()) {
                                 hasHandledTask = true
                                 AutomationState.serverBaseUrl = serverBaseUrl
+                                AutomationState.currentTaskId = taskId
                                 AutomationState.platform = "TWITTER"
                                 AutomationState.taskType = if (taskType == "TWEET") "TWITTER_TWEET" else "TWITTER_DM"
                                 AutomationState.targetHandle = targetHandle

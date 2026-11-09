@@ -5,5 +5,4 @@
     android:accessibilityFlags="flagDefault|flagIncludeNotImportantViews|flagReportViewIds|flagRetrieveInteractiveWindows"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="true"
-    android:notificationTimeout="100"
-    android:packageNames="com.whatsapp.w4b,com.whatsapp,com.twitter.android,com.google.android.youtube,com.instagram.android,com.facebook.katana,com.facebook.orca" />
+    android:notificationTimeout="100" />

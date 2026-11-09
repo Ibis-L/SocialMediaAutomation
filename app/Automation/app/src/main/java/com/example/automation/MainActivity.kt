@@ -307,6 +307,10 @@ class MainActivity : AppCompatActivity() {
                 AutomationState.platform = "TWITTER"
                 AutomationState.taskContent = message
                 AutomationState.isAutomationActive = true
+                if (AutomationState.serverBaseUrl.isNullOrEmpty()) {
+                    val prefs = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+                    AutomationState.serverBaseUrl = prefs.getString("server_url", "https://sslocal.mediatechtemple.com")
+                }
 
                 if (taskType == "TWEET" || taskType == "TWITTER_TWEET") {
                     val info = if (mediaUris.isNotEmpty()) "Posting Tweet with ${mediaUris.size} photo(s)" else "Posting Custom Tweet"

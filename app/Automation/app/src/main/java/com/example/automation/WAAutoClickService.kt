@@ -23,7 +23,7 @@ class WAAutoClickService : AccessibilityService() {
         if (isProcessing) {
             Log.e(TAG, "Safety timeout reached. Force resetting isProcessing.")
             if (AutomationState.platform == "TWITTER") {
-                TwitterAutomationHandler.reportTwitterTaskStatus("FAILED", "Safety timeout reached during Twitter automation")
+                TwitterAutomationHandler.reportTwitterTaskStatus(this, "FAILED", "Safety timeout reached during Twitter automation")
             } else {
                 reportTaskStatus("FAILED")
             }
@@ -55,25 +55,31 @@ class WAAutoClickService : AccessibilityService() {
 
         // ─────────────────────────────────────────────────────────────
         // 2. TWITTER (X) AUTOMATION FLOW (Delegated to TwitterAutomationHandler)
+        // Handles both Twitter app and system share/post bottom sheets
         // ─────────────────────────────────────────────────────────────
-        if (pkg == "com.twitter.android" && AutomationState.platform == "TWITTER") {
-            if (!isProcessing) {
-                isProcessing = true
-                handler.removeCallbacks(safetyResetRunnable)
-                handler.postDelayed(safetyResetRunnable, 25000) // 25s timeout for network/page load
+        if (AutomationState.platform == "TWITTER") {
+            val isTwitterPkg = pkg == "com.twitter.android"
+            val isSystemSheet = pkg == "android" || pkg == "com.android.intentresolver" || pkg.contains("chooser") || pkg.contains("share") || pkg.contains("systemui")
+            
+            if (isTwitterPkg || (isSystemSheet && AutomationState.taskType == "TWITTER_TWEET")) {
+                if (!isProcessing) {
+                    isProcessing = true
+                    handler.removeCallbacks(safetyResetRunnable)
+                    handler.postDelayed(safetyResetRunnable, 35000)
 
-                TwitterAutomationHandler.startTwitterFlow(
-                    service = this,
-                    handler = handler,
-                    onFinish = {
-                        closeAppAndGoHome()
-                    },
-                    onError = {
-                        resetState()
-                    }
-                )
+                    TwitterAutomationHandler.startTwitterFlow(
+                        service = this,
+                        handler = handler,
+                        onFinish = {
+                            closeAppAndGoHome()
+                        },
+                        onError = {
+                            resetState()
+                        }
+                    )
+                }
+                return
             }
-            return
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -214,6 +220,7 @@ class WAAutoClickService : AccessibilityService() {
     }
 
     fun closeAppAndGoHome() {
+        AutomationState.isAutomationActive = false
         performGlobalAction(GLOBAL_ACTION_HOME)
         handler.postDelayed({
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
