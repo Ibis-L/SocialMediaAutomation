@@ -35,6 +35,7 @@ object TwitterAutomationHandler {
         if (AutomationState.taskType == "TWITTER_TWEET") {
             isTweetSubmitted = false
             isTweetCompleted = false
+            isTextPasted = false
             attemptTwitterTweetPublish(service, handler, 0, onFinish, onError)
         } else {
             // DM flow: wait a bit longer for the profile page to fully load before scanning
@@ -300,7 +301,7 @@ object TwitterAutomationHandler {
         if (node == null) return null
         val viewId = node.viewIdResourceName ?: ""
         val className = node.className?.toString() ?: ""
-        val hint = node.hintText?.toString() ?: ""
+        val hint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) node.hintText?.toString() ?: "" else ""
 
         // Match known DM composer view IDs
         if (viewId.endsWith(":id/chat_message_input") ||
@@ -367,6 +368,9 @@ object TwitterAutomationHandler {
     // ─────────────────────────────────────────────────────────────────
     // TWITTER (X) CUSTOM TWEET PUBLISHING LOGIC
     // ─────────────────────────────────────────────────────────────────
+    @Volatile
+    private var isTextPasted = false
+
     private fun attemptTwitterTweetPublish(
         service: AccessibilityService,
         handler: Handler,
@@ -397,76 +401,64 @@ object TwitterAutomationHandler {
 
         val tweetContent = AutomationState.taskContent ?: ""
 
-        // Periodically dump tree to logcat on attempts 0, 3, 7 to diagnose bottom sheet
-        if (attempt == 0 || attempt == 3 || attempt == 7) {
-            Log.d(TAG, "--- Twitter Automation UI Snapshot at attempt $attempt (pkg: ${rootNode.packageName}) ---")
-            dumpClickableNodes(rootNode, 0)
-        }
-
-        // Phase 0: Check for System/Phone Bottom Share Sheet with "Post" / "Share" option (Only before submitting)
-        if (!isTweetSubmitted) {
-            val sheetPostOption = findPostOptionInShareSheet(rootNode)
-            if (sheetPostOption != null) {
-                val text = (sheetPostOption.text?.toString() ?: sheetPostOption.contentDescription?.toString() ?: "").trim()
-                Log.d(TAG, "Tweet Compose: Found '$text' option in downward bottom sheet! Clicking to open Twitter composer...")
-                clickNode(sheetPostOption)
-                handler.postDelayed({ attemptTwitterTweetPublish(service, handler, attempt + 1, onFinish, onError) }, 1800)
-                return
-            }
-        }
-
-        // Phase A: If on Home/Timeline, look for the Floating "+" or "Post" FAB button to open Composer (Only before submitting)
+        // Phase A: If on Home/Timeline, look for the Floating "+" / "Post" FAB button to open Composer
         val tweetInput = findTweetComposerInput(rootNode)
-        if (!isTweetSubmitted && tweetInput == null) {
+        if (tweetInput == null && !isTextPasted) {
             val composeFab = findTwitterComposeFab(rootNode)
             if (composeFab != null) {
-                Log.d(TAG, "Tweet Compose: Found '+' / Compose FAB button on screen! Clicking to open composer...")
+                Log.d(TAG, "Tweet Compose: Found FAB '+' button on screen! Clicking to open composer...")
                 clickNode(composeFab)
                 handler.postDelayed({ attemptTwitterTweetPublish(service, handler, attempt + 1, onFinish, onError) }, 1200)
                 return
-            }
-        }
-
-        // Phase B: When composer input is found, enter the tweet text
-        if (tweetInput != null && tweetContent.isNotEmpty()) {
-            val currentText = tweetInput.text?.toString() ?: ""
-            if (currentText.isEmpty() || !currentText.contains(tweetContent.take(20))) {
-                Log.d(TAG, "Tweet Compose: Composer input found! Setting text...")
-                tweetInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-
-                val args = Bundle().apply {
-                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, tweetContent)
-                }
-                var setSuccess = tweetInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-
-                // Fallback to clipboard paste
-                if (!setSuccess) {
-                    try {
-                        val clipboard = service.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                        val clip = android.content.ClipData.newPlainText("tweet_text", tweetContent)
-                        clipboard?.setPrimaryClip(clip)
-                        setSuccess = tweetInput.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-                    } catch (e: Exception) {}
-                }
-
-                handler.postDelayed({ attemptTwitterTweetPublish(service, handler, attempt + 1, onFinish, onError) }, 1000)
+            } else {
+                Log.d(TAG, "Tweet Compose: Composer input and FAB not found yet (attempt $attempt), retrying...")
+                handler.postDelayed({ attemptTwitterTweetPublish(service, handler, attempt + 1, onFinish, onError) }, 800)
                 return
             }
         }
 
-        // Phase C: Find and click "Post" / "Tweet" button
-        val postButton = findTweetPostButton(rootNode)
-        if (postButton != null) {
-            val btnText = (postButton.text?.toString() ?: postButton.contentDescription?.toString() ?: "").trim()
-            Log.d(TAG, "Tweet Compose: Post button found ('$btnText')! Publishing Tweet...")
-            clickNode(postButton)
-            isTweetSubmitted = true
+        // Phase B: When composer input is found on screen, enter the tweet text
+        if (tweetInput != null && tweetContent.isNotEmpty() && !isTextPasted) {
+            Log.d(TAG, "Tweet Compose: Composer input found! Typing / pasting text...")
+            tweetInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
 
-            // Transition to Phase D: Wait for confirmation banner ("Your post was sent")
-            handler.postDelayed({
-                waitForTweetSentConfirmation(service, handler, 0, onFinish, onError)
-            }, 600)
+            // Primary: Clipboard PASTE (required for Twitter text watchers to enable Post button)
+            try {
+                val clipboard = service.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("tweet_text", tweetContent)
+                clipboard?.setPrimaryClip(clip)
+                tweetInput.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            } catch (e: Exception) {
+                Log.e(TAG, "Clipboard paste error: ${e.message}")
+            }
+
+            // Secondary: SET_TEXT as fallback
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, tweetContent)
+            }
+            tweetInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+
+            isTextPasted = true
+            Log.d(TAG, "Tweet Compose: Text injected successfully into composer.")
+            handler.postDelayed({ attemptTwitterTweetPublish(service, handler, attempt + 1, onFinish, onError) }, 1200)
             return
+        }
+
+        // Phase C: ONLY after text is pasted and composer input is active, click the top "Post" / "Tweet" button
+        if (isTextPasted || (tweetInput != null && (tweetInput.text?.length ?: 0) > 0)) {
+            val postButton = findTweetPostButton(rootNode)
+            if (postButton != null) {
+                val btnText = (postButton.text?.toString() ?: postButton.contentDescription?.toString() ?: "").trim()
+                Log.d(TAG, "Tweet Compose: Active Post button found ('$btnText')! Publishing Tweet...")
+                clickNode(postButton)
+                isTweetSubmitted = true
+
+                // Transition to Phase D: Wait for confirmation & exit cleanly
+                handler.postDelayed({
+                    waitForTweetSentConfirmation(service, handler, 0, onFinish, onError)
+                }, 800)
+                return
+            }
         }
 
         handler.postDelayed({ attemptTwitterTweetPublish(service, handler, attempt + 1, onFinish, onError) }, 800)
